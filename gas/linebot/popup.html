@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { width: 350px; font-family: 'Microsoft JhengHei', sans-serif; padding: 10px; position: relative; }
+    
+    .header-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+    h3 { margin: 0; color: #00B900; }
+    
+    .btn-reload { background: none; border: 1px solid #ddd; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #666; transition: all 0.2s; }
+    .btn-reload:hover { background: #f0f0f0; color: #00B900; transform: rotate(180deg); }
+
+    #store-name { font-size: 14px; color: #666; margin-bottom: 10px; font-weight: bold; }
+    
+    .box-container { margin-bottom: 10px; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 5px; }
+    .availability-section { background: #f0f8ff; border-color: #cceeff; }
+    .booking-section { background: #fff4e6; border-color: #ffcc99; }
+
+    .form-row { margin-bottom: 8px; display: flex; align-items: center; gap: 5px; }
+    .form-row label { font-size: 12px; width: 35px; color: #666; font-weight: bold; } /* 標籤固定寬度 */
+    .form-input { flex: 1; padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+    
+    #member-info { font-size: 13px; color: #00B900; font-weight: bold; margin-left: 5px; margin-bottom: 5px; }
+    #booking-details { display: none; margin-top: 10px; border-top: 1px dashed #ffcc99; padding-top: 10px; }
+
+    /* 進階面板 */
+    #advanced-search-panel { display:none; background:#eee; padding:10px; margin-top:5px; border-radius:5px; border:1px solid #ccc; }
+    #adv-result-container { display:none; margin-top:10px; }
+    #adv-result-text { width: 100%; height: 100px; border: 1px solid #999; font-size: 13px; line-height: 1.5; padding: 5px; box-sizing: border-box; resize: vertical; font-family: 'Consolas', monospace; color: #333; }
+    
+    .btn-action { background-color: #00B900; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; width: 100%; }
+    .btn-action:hover { background-color: #009900; }
+    .btn-action:disabled { background-color: #ccc; cursor: not-allowed; }
+    
+    .btn-check { background-color: #ff9900; }
+    .btn-check:hover { background-color: #e68a00; }
+    .btn-secondary { background-color: #6c757d; }
+    .btn-copy-result { background-color: #17a2b8; margin-top: 5px; }
+
+    .search-box { margin-bottom: 15px; position: relative; }
+    #input-search { width: 100%; padding: 8px 30px 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 20px; outline: none; }
+    .search-icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #999; }
+
+    .msg-item { border: 1px solid #ddd; padding: 8px; margin-bottom: 8px; border-radius: 5px; background: #f9f9f9; position: relative; }
+    .msg-header { font-size: 12px; color: #888; margin-bottom: 4px; display: flex; align-items: center; }
+    .msg-name { font-weight: bold; color: #0066cc; margin: 0 5px; cursor: pointer; user-select: text; border-bottom: 1px dashed #ccc; }
+    .msg-name:hover { color: #004499; border-bottom: 1px solid #004499; background-color: #e6f7ff; }
+    .btn-copy-name { background: none; border: none; cursor: pointer; font-size: 14px; opacity: 0.5; }
+    .msg-content { font-size: 14px; color: #333; word-break: break-all; margin-top: 5px; }
+    .btn-done { position: absolute; top: 5px; right: 5px; background: #fff; border: 1px solid #ccc; cursor: pointer; border-radius: 4px; padding: 2px 8px; font-size: 12px; }
+    
+    #loading { text-align: center; color: #999; display: none; margin-top: 20px;}
+    .slots-container { display:none; } 
+  </style>
+</head>
+<body>
+  <div class="header-row">
+    <h3>LINE 客服助手</h3>
+    <button id="btn-reload-page" class="btn-reload" title="重新整理">🔄</button>
+  </div>
+
+  <div id="store-name">偵測中...</div>
+  
+  <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 5px; font-size: 13px;">
+    <label>我是：</label>
+    <input type="text" id="operator_name" placeholder="請輸入名字" 
+           style="width: 80px; padding: 2px 5px; border: 1px solid #ccc; border-radius: 4px; color: #00B900; font-weight: bold;">
+  </div>
+
+  <div class="box-container availability-section">
+    <button id="btn-toggle-advanced" class="btn-action btn-secondary" style="width: 100%;">🔍 查詢空位 (進階搜尋)</button>
+
+    <div id="advanced-search-panel">
+      <div style="font-size:12px; font-weight:bold; margin-bottom:5px; color:#333;">設定搜尋條件：</div>
+      
+      <div class="form-row">
+        <label>範圍</label>
+        <input type="date" id="adv-start" class="form-input" style="font-size:11px;">
+        <span style="margin:0 2px;">~</span>
+        <input type="date" id="adv-end" class="form-input" style="font-size:11px;">
+      </div>
+
+      <div class="form-row">
+        <label>人數</label>
+        <input type="number" id="adv-people" class="form-input" value="1" min="1" style="width:40px;">
+        
+        <label style="width:auto; margin-left:5px;">工時</label>
+        <input type="number" id="adv-duration" class="form-input" value="1.5" step="0.5" style="width:40px;"> hr
+      </div>
+
+      <div class="form-row">
+        <label>時段</label>
+        <select id="adv-time-range" class="form-input">
+          <option value="11:00-21:00">全天 (11:00~21:00)</option>
+          <option value="13:00-17:00">下午 (13:00~17:00)</option>
+          <option value="18:00-21:00">晚上 (18:00~21:00)</option>
+        </select>
+      </div>
+
+      <div class="form-row" style="font-size:11px;">
+        <label>星期</label>
+        <div style="display:flex; gap:3px;">
+          <label><input type="checkbox" name="adv-week" value="1" checked>一</label>
+          <label><input type="checkbox" name="adv-week" value="2" checked>二</label>
+          <label><input type="checkbox" name="adv-week" value="3" checked>三</label>
+          <label><input type="checkbox" name="adv-week" value="4" checked>四</label>
+          <label><input type="checkbox" name="adv-week" value="5" checked>五</label>
+          <label><input type="checkbox" name="adv-week" value="6" checked style="accent-color:red;">六</label>
+          <label><input type="checkbox" name="adv-week" value="0" checked style="accent-color:red;">日</label>
+        </div>
+      </div>
+
+      <button id="btn-run-search" class="btn-action" style="margin-top:5px;">開始搜尋</button>
+    </div>
+
+    <div id="adv-result-container">
+      <textarea id="adv-result-text" readonly placeholder="搜尋結果將顯示於此..."></textarea>
+      <button id="btn-copy-txt" class="btn-action btn-copy-result">📋 複製結果</button>
+    </div>
+  </div>
+
+  <div class="box-container booking-section">
+    <div class="form-row">
+      <input type="tel" id="bk-phone" class="form-input" placeholder="輸入手機查會員">
+      <button id="btn-check-member" class="btn-action btn-check" style="width: auto;">查詢</button>
+    </div>
+    <div id="member-info"></div>
+
+    <div id="booking-details">
+      <div class="form-row">
+        <label>日期</label>
+        <input type="date" id="bk-date" class="form-input">
+      </div>
+
+      <div class="form-row">
+        <label>人數</label>
+        <input type="number" id="bk-people" class="form-input" value="1" min="1" style="width:50px;">
+        <label style="width:auto; margin-left:10px;">時長</label>
+        <input type="number" id="bk-duration" class="form-input" value="1.5" step="0.5" style="width:50px;"> hr
+      </div>
+
+      <div class="form-row">
+        <label>時間</label>
+        <input type="time" id="bk-time" class="form-input" value="13:00">
+      </div>
+
+      <div class="form-row">
+        <label>備註</label>
+        <input type="text" id="bk-remark" class="form-input" placeholder="例如: 想做四項">
+      </div>
+      
+      <button id="btn-submit-booking" class="btn-action">🚀 確認預約</button>
+    </div>
+  </div>
+
+  <div class="search-box">
+    <input type="text" id="input-search" placeholder="🔍 搜尋名字或訊息...">
+    <span class="search-icon">🔍</span>
+  </div>
+
+  <div id="loading">讀取資料中...</div>
+  <div id="error"></div>
+  <div id="msg-list"></div>
+
+  <textarea id="slots-result" style="display:none;"></textarea>
+  <script src="popup.js"></script>
+</body>
+</html>

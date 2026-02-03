@@ -1,0 +1,480 @@
+// 拉取神美的 Token（優先從 Token Web App API 取得，無設定時才直接讀試算表）
+var TOKEN_SHEET_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
+var TOKEN_SHEET_NAME = '預約表單';
+var TOKEN_CELL = 'C2';
+
+function getBearerTokenFromSheet() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var apiUrl = (props.getProperty('PAO_CAT_TOKEN_API_URL') || '').trim();
+    var secretKey = (props.getProperty('PAO_CAT_SECRET_KEY') || '').trim();
+    if (apiUrl && secretKey) {
+      var url = apiUrl.replace(/\s+$/, '') + (apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'key=' + encodeURIComponent(secretKey);
+      var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      var token = response.getContentText();
+      if (token && token.indexOf('Error') !== 0) return String(token).trim();
+    }
+  } catch (e) {
+    Logger.log('getBearerTokenFromSheet API 失敗: ' + (e && e.message));
+  }
+  var ss = SpreadsheetApp.openById(TOKEN_SHEET_SS_ID);
+  var sheet = ss.getSheetByName(TOKEN_SHEET_NAME);
+  if (!sheet) {
+    Logger.log('找不到工作表：' + TOKEN_SHEET_NAME);
+    return '';
+  }
+  var token = sheet.getRange(TOKEN_CELL).getValue();
+  return token ? String(token).trim() : '';
+}
+
+// 用手機抓出神美會員
+function getMemApi(phone) {
+  const bearerToken = getBearerTokenFromSheet()
+  const apiUrl =
+    'https://saywebdatafeed.saydou.com/api/management/unearn/memberStorecash' +
+    '?page=0&limit=20&sort=stcash&order=desc' +
+    '&keyword=' + encodeURIComponent(phone) +
+    '&showGroup=0&tabIndex=0';
+
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'get',
+      headers: {
+        Authorization: 'Bearer ' + bearerToken,
+      },
+      muteHttpExceptions: true,
+    });
+
+    // 2. [修正] 必須先取得 HTTP 狀態碼
+    const code = response.getResponseCode(); 
+    const json = JSON.parse(response.getContentText());
+
+    // 如果 API 回傳非 200，視為失敗
+    if (code !== 200) {
+      Logger.log('getMemApi error (Code ' + code + '): ' + phone);
+      return null;
+    }
+
+    // 3. 檢查是否有資料
+    if (json && json.data && json.data.items && json.data.items.length > 0) {
+      // 回傳第一筆符合的會員資料
+      return json.data.items[0];
+    } else {
+      // API 成功但沒找到人
+      return null;
+    }
+
+  } catch (e) {
+    Logger.log('getMemApi exception for ' + phone + ': ' + e);
+    return null;
+  }
+}
+// 要塞入 phones
+/**
+ * [主要功能] 根據手機號碼自動執行退費
+ * @param {string} phone 手機號碼
+ * @return {object} { success: boolean, msg: string, data: object }
+ */
+function executeRefundByPhone(phone) {
+  // 1. 查詢會員
+  const member = getMemApi(phone);
+  
+  if (!member) {
+    return { success: false, msg: '找不到會員資料', phone: phone };
+  }
+
+  // 2. 檢查儲值金
+  if (!member.stcash || member.stcash <= 0) {
+    return { success: false, msg: '儲值金為 0 或無儲值金', phone: phone };
+  }
+
+  const payload = {
+    membid: member.membid,
+    cdcode: member.cdcode
+  };
+
+  Logger.log(`[Core] 執行退費: ${phone}, 金額: ${member.stcash}`);
+
+  // 3. 呼叫退費 API
+  const bearerToken = getBearerTokenFromSheet();
+  const apiUrl = 'https://saywebdatafeed.saydou.com/api/management/unearn/returnStorecash';
+  
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + bearerToken },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+
+    const code = response.getResponseCode();
+    const result = JSON.parse(response.getContentText() || '{}');
+
+    if (code === 200) {
+      return { success: true, msg: '退費成功', data: result, amount: member.stcash };
+    } else {
+      return { success: false, msg: 'API 錯誤', data: result };
+    }
+  } catch (e) {
+    return { success: false, msg: '系統異常: ' + e.message };
+  }
+}
+
+/**
+ * [批次功能] 如果想一次丟一堆手機進來
+ */
+function batchRefund(phones) {
+  return phones.map(phone => executeRefundByPhone(phone));
+}
+
+// [PaoMao_Core] ApiTools.gs
+
+/**
+ * [API 1] 抓取單店單日營收 (對應您提供的 runDailyIncomeApiGAS)
+ * 用途：跑日報表迴圈用
+ */
+function fetchDailyIncome(dateStr, storeId) {
+  const bearerToken = getBearerTokenFromSheet(); // 內部取得 Token
+  
+  // 修正：參數傳入 storeId 與 dateStr
+  const apiUrl = `https://saywebdatafeed.saydou.com/api/management/finance/dailyIncome?storid=${storeId}&date=${dateStr}&end_date=${dateStr}`;
+  
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'get',
+      headers: { 'Authorization': `Bearer ${bearerToken}` },
+      muteHttpExceptions: true 
+    });
+    
+    const json = JSON.parse(response.getContentText());
+    return json; // 直接回傳完整 JSON，讓外面去解析 data
+  } catch (e) {
+    console.error(`[Core] fetchDailyIncome 錯誤 (${storeId}, ${dateStr}): ${e.message}`);
+    return { data: { total: 0, items: [] } }; // 回傳預設空結構防爆
+  }
+}
+
+/**
+ * [API 2] 抓取消費明細 (對應您提供的 runReceiptApiGAS)
+ * 用途：如果未來需要抓詳細交易紀錄時呼叫
+ */
+function fetchTransactions(startDate, endDate, storeIds, page = 0, limit = 50) {
+  const bearerToken = getBearerTokenFromSheet();
+  
+  // 組合 storeId 陣列字串
+  const storeIdString = storeIds.map(id => `&store%5B%5D=${id}`).join('');
+  
+  const apiUrl = `https://saywebdatafeed.saydou.com/api/management/finance/transaction?page=${page}&limit=${limit}&sort=ordrsn&order=desc&keyword=&start=${startDate}&end=${endDate}&searchMemberCtrl=null&searchProductCtrl=null&searchStaffCtrl=null&membid=0&godsid=0&usrsid=0&memnam=&godnam=&usrnam=&assign=all&goctString=${storeIdString}`;
+    
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'get',
+      headers: { 'Authorization': `Bearer ${bearerToken}` },
+      muteHttpExceptions: true
+    });
+    return JSON.parse(response.getContentText());
+  } catch (e) {
+    console.error("[Core] fetchTransactions 錯誤：" + e.message);
+    return { data: { total: 0, items: [] } };
+  }
+}
+
+/**
+ * 取得指定店家、指定日期的消費交易明細（分頁拉完），供昨日報表「誰做收多少」用
+ * @param {string} storeId - SayDou 店家 ID (storid)
+ * @param {string} dateStr - yyyy-MM-dd
+ * @returns {Array} transaction 項目陣列（該店、該日）
+ */
+function getTransactionsForStoreByDate(storeId, dateStr) {
+  if (!storeId || !dateStr) return [];
+  var all = [];
+  var page = 0;
+  var limit = 100;
+  var res;
+  do {
+    res = fetchTransactions(dateStr, dateStr, [storeId], page, limit);
+    var items = (res.data && res.data.items) ? res.data.items : [];
+    for (var i = 0; i < items.length; i++) {
+      var t = items[i];
+      var recDate = (t.rectim || t.cretim || "").slice(0, 10);
+      var storId = (t.stor && t.stor.storid != null) ? String(t.stor.storid) : "";
+      if (recDate === dateStr && storId === String(storeId)) all.push(t);
+    }
+    page++;
+  } while (items.length >= limit);
+  return all;
+}
+
+/**
+ * 取得指定店家、日期區間的消費交易明細（分頁拉完），供月報用
+ * @param {string} storeId - SayDou 店家 ID (storid)
+ * @param {string} startDate - yyyy-MM-dd
+ * @param {string} endDate - yyyy-MM-dd
+ * @returns {Array} transaction 項目陣列
+ */
+function getTransactionsForStoreByDateRange(storeId, startDate, endDate) {
+  if (!storeId || !startDate || !endDate) return [];
+  var all = [];
+  var page = 0;
+  var limit = 100;
+  var res;
+  do {
+    res = fetchTransactions(startDate, endDate, [storeId], page, limit);
+    var items = (res.data && res.data.items) ? res.data.items : [];
+    for (var i = 0; i < items.length; i++) {
+      var t = items[i];
+      var recDate = (t.rectim || t.cretim || "").slice(0, 10);
+      var storId = (t.stor && t.stor.storid != null) ? String(t.stor.storid) : "";
+      if (recDate >= startDate && recDate <= endDate && storId === String(storeId)) all.push(t);
+    }
+    page++;
+  } while (items.length >= limit);
+  return all;
+}
+
+// 取得店家的大的預約資訊
+function fetchReservationData(startDate, endDate, storeId) {
+  const url = 'https://saywebdatafeed.saydou.com/api/management/analytics/reservation';
+  const payload = {
+    timebase: 'reservation',
+    start: Utilities.formatDate(new Date(startDate), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    end: Utilities.formatDate(new Date(endDate), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    'store[]': [storeId]
+  };
+
+  const options = {
+    method: 'POST',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    headers: {
+      Authorization: `Bearer ${getBearerTokenFromSheet()}`
+    },
+    muteHttpExceptions: true,
+  };
+
+  const response = UrlFetchApp.fetch(url, options);
+  const data = JSON.parse(response.getContentText());
+
+  return data.source;
+}
+
+// 取得神的新舊客資訊
+function oldNewA(startDate, endDate, storeId) {
+  const str = Utilities.formatDate(new Date(startDate), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+  const end = Utilities.formatDate(new Date(endDate), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+  const url = `https://saywebdatafeed.saydou.com/api/management/analytics/member/oldNewAnalyse/0/1?start=${str}&end=${end}&store%5B%5D=${storeId}&page=0&limit=100`;
+  const options = {
+    method: 'GET',
+    contentType: 'application/json',
+    headers: {
+      Authorization: `Bearer ${getBearerTokenFromSheet()}`
+    },
+    muteHttpExceptions: true,
+  };
+
+  const response = UrlFetchApp.fetch(url, options);
+  const data = JSON.parse(response.getContentText());
+  const stores = data.data.ratio;
+  return stores
+
+}
+
+// 去得今天預約的狀況
+function fetchTodayReservationData(start, end, storeId) {
+  const url = 'https://saywebdatafeed.saydou.com/api/management/analytics/reservation';
+
+  const payload = {
+    timebase: "create",
+    start: start,
+    end: end,
+    'store[]': [storeId],
+  };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      Authorization: `Bearer ${getBearerTokenFromSheet()}`
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(url, options);
+  return JSON.parse(response.getContentText());
+}
+
+// ---------------------------------------------------------------------------
+// 會員全貌：依 membid 拉取 member view / 消費全筆 / 儲值金全筆（供 CRM 整合用）
+// ---------------------------------------------------------------------------
+
+/**
+ * GET 會員個人資料（完整 view）
+ * @param {number} membid 會員 ID
+ * @returns {object|null} data 或 null
+ */
+function getMemberViewByMembid(membid) {
+  if (!membid) return null;
+  const bearerToken = getBearerTokenFromSheet();
+  const apiUrl = 'https://saywebdatafeed.saydou.com/api/management/crm/member/' + membid + '?type=view';
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + bearerToken },
+      muteHttpExceptions: true,
+    });
+    const code = response.getResponseCode();
+    const json = JSON.parse(response.getContentText() || '{}');
+    if (code !== 200 || !json.status || !json.data) return null;
+    return json.data;
+  } catch (e) {
+    Logger.log('getMemberViewByMembid exception: ' + e);
+    return null;
+  }
+}
+
+/**
+ * 拉一頁「消費紀錄」transaction
+ * @param {number} membid
+ * @param {number} page
+ * @param {number} limit
+ * @returns {{ items: Array, total: number }}
+ */
+function fetchTransactionsByMembidPage(membid, page, limit) {
+  const bearerToken = getBearerTokenFromSheet();
+  const apiUrl = 'https://saywebdatafeed.saydou.com/api/management/finance/transaction' +
+    '?page=' + page + '&limit=' + limit +
+    '&sort=ordrsn&order=desc&keyword=&searchMemberCtrl=null&searchProductCtrl=null&searchStaffCtrl=null' +
+    '&membid=' + membid + '&godsid=0&usrsid=0&memnam=&godnam=&usrnam=&assign=all&licnum=&goctString=';
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + bearerToken },
+      muteHttpExceptions: true,
+    });
+    const json = JSON.parse(response.getContentText() || '{}');
+    if (!json.status || !json.data) return { items: [], total: 0 };
+    return { items: json.data.items || [], total: json.data.total || 0 };
+  } catch (e) {
+    Logger.log('fetchTransactionsByMembidPage exception: ' + e);
+    return { items: [], total: 0 };
+  }
+}
+
+/**
+ * 依 membid 全筆拉取消費紀錄（分頁迴圈直到取完）
+ * @param {number} membid
+ * @param {number} pageSize 每頁筆數，預設 20
+ * @returns {Array} 所有 transaction 項目
+ */
+function getAllTransactionsByMembid(membid, pageSize) {
+  if (!membid) return [];
+  var limit = pageSize || 20;
+  var all = [];
+  var page = 0;
+  var res;
+  do {
+    res = fetchTransactionsByMembidPage(membid, page, limit);
+    if (res.items && res.items.length > 0) all = all.concat(res.items);
+    page++;
+  } while (res.items && res.items.length >= limit);
+  return all;
+}
+
+/**
+ * 拉一頁「儲值金使用紀錄」storecashUseRecord
+ * @param {number} membid
+ * @param {number} page
+ * @param {number} limit
+ * @returns {{ items: Array, total: number }}
+ */
+function fetchStorecashUseRecordPage(membid, page, limit) {
+  const bearerToken = getBearerTokenFromSheet();
+  const apiUrl = 'https://saywebdatafeed.saydou.com/api/management/unearn/storecashUseRecord' +
+    '?page=' + page + '&limit=' + (limit || 20) +
+    '&sort=rectim&order=desc&keyword=&type=0&tabIndex=2&membid=' + membid;
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + bearerToken },
+      muteHttpExceptions: true,
+    });
+    const json = JSON.parse(response.getContentText() || '{}');
+    if (!json.status || !json.data) return { items: [], total: 0 };
+    return { items: json.data.items || [], total: json.data.total || 0 };
+  } catch (e) {
+    Logger.log('fetchStorecashUseRecordPage exception: ' + e);
+    return { items: [], total: 0 };
+  }
+}
+
+/**
+ * 依 membid 全筆拉取儲值金使用紀錄（分頁迴圈直到取完）
+ * @param {number} membid
+ * @param {number} pageSize 預設 20
+ * @returns {Array}
+ */
+function getAllStorecashUseRecordByMembid(membid, pageSize) {
+  if (!membid) return [];
+  var limit = pageSize || 20;
+  var all = [];
+  var page = 0;
+  var res;
+  do {
+    res = fetchStorecashUseRecordPage(membid, page, limit);
+    if (res.items && res.items.length > 0) all = all.concat(res.items);
+    page++;
+  } while (res.items && res.items.length >= limit);
+  return all;
+}
+
+/**
+ * 拉一頁「儲值紀錄」storecashAddRecord（儲值／加值）
+ * @param {number} membid
+ * @param {number} page
+ * @param {number} limit
+ * @returns {{ items: Array, total: number }}
+ */
+function fetchStorecashAddRecordPage(membid, page, limit) {
+  const bearerToken = getBearerTokenFromSheet();
+  const apiUrl = 'https://saywebdatafeed.saydou.com/api/management/unearn/storecashAddRecord' +
+    '?page=' + page + '&limit=' + (limit || 20) +
+    '&sort=rectim&order=desc&keyword=&membid=' + membid + '&type=0&tabIndex=1';
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + bearerToken },
+      muteHttpExceptions: true,
+    });
+    const json = JSON.parse(response.getContentText() || '{}');
+    if (!json.status || !json.data) return { items: [], total: 0 };
+    return { items: json.data.items || [], total: json.data.total || 0 };
+  } catch (e) {
+    Logger.log('fetchStorecashAddRecordPage exception: ' + e);
+    return { items: [], total: 0 };
+  }
+}
+
+/**
+ * 依 membid 全筆拉取儲值紀錄（加值／儲值），分頁迴圈直到取完
+ * @param {number} membid
+ * @param {number} pageSize 預設 20
+ * @returns {Array}
+ */
+function getAllStorecashAddRecordByMembid(membid, pageSize) {
+  if (!membid) return [];
+  var limit = pageSize || 20;
+  var all = [];
+  var page = 0;
+  var res;
+  do {
+    res = fetchStorecashAddRecordPage(membid, page, limit);
+    if (res.items && res.items.length > 0) all = all.concat(res.items);
+    page++;
+  } while (res.items && res.items.length >= limit);
+  return all;
+}
+
+
+
