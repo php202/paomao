@@ -1,0 +1,10 @@
+{
+  "name": "paomao-ads",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "push": "clasp push --force",
+    "deploy": "clasp deploy -i AKfycbzISHq95a5U2kNYk5snI8piefBNWpXBPaD2f4xAsas -d 'Updated'",
+    "ship": "npm run push && npm run deploy"
+  }
+}

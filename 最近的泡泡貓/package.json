@@ -1,0 +1,10 @@
+{
+  "name": "recent-paomao",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "push": "clasp push --force",
+    "deploy": "clasp deploy -i AKfycbzq3BnJrZlf0TUrhmSv2W4tfSQK0tSR_ENZApPKUxsCLdtw1pPfSabdd8xzpPRkXGg -d 'Updated'",
+    "ship": "npm run push && npm run deploy"
+  }
+}

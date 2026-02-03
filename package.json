@@ -1,0 +1,9 @@
+{
+  "name": "gas",
+  "version": "1.0.0",
+  "description": "GAS 專案根目錄。npm run ship = 對所有子專案執行 push + 以既有部署 ID deploy（不變更網址）。各專案須在 package.json 填寫既有部署 ID。",
+  "private": true,
+  "scripts": {
+    "ship": "node scripts/ship.js"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "daily-report",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "push": "clasp push --force",
+    "deploy": "clasp deploy -i AKfycbwPM-KgDtnlSIhPFYiWUa94Dt85OLiL9miv8q5NF_D75q7wX5JFg9-ffR26eD99acxAGQ -d 'Updated'",
+    "ship": "npm run push && npm run deploy"
+  }
+}

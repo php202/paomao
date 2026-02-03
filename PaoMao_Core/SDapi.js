@@ -73,11 +73,10 @@ function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, 
           // (C) 計算忙碌人數 (Busy Count)
           let busyCount = 0;
 
-          // C-1. 檢查預約占用
+          // C-1. 檢查預約占用（含待確認皆算佔用，與後台「已滿」一致）
           for (const r of dailyReservations) {
-            // 若有員工名單且該預約不在名單內 (例如離職建檔)，忽略
             if (validStaffSet.size > 0 && r.usrsid && !validStaffSet.has(r.usrsid)) continue;
-            
+            if (!r.rsvtim || !r.endtim) continue;
             const rStart = isoToMinutes(r.rsvtim);
             const rEnd = isoToMinutes(r.endtim);
             

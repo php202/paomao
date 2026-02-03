@@ -64,3 +64,18 @@
 | **AiReception.js** | `generateReceptionPhrase` / `generateReceptionPhraseByPhone` 接待話語（3 句） | ⏸ 暫停 |
 | **AiReception.js** | `generateReceptionBriefingByPhone` / `generateReceptionBriefingByPhoneAndWrite` 3 秒鐘戰報 | ⏸ 暫停 |
 | **Post-handleLineWebhook.js** | `generateContextualAI` LINE 回覆的客服文案 | ⏸ 暫停（改回罐頭訊息） |
+
+---
+
+## 6. 預約／空位相關
+
+### 空位顯示與後台一致
+
+- **問題**：LINE 查空位顯示的時段，與後台「很多時段已預約滿」不一致。
+- **修正**：空位計算改為**凡有預約（含待確認）都算佔用**，與 SayDou 後台邏輯對齊；Core 與各店訊息一覽表（getSlots / createBooking）皆已改為不只看「已確認」預約。
+
+### 客人預約通知按「確認」後被消掉
+
+- **現象**：客人收到預約通知後按「確認」，預約被取消或消失。
+- **說明**：預約通知與「確認」按鈕由 **SayDou** 推播／後台流程處理，非本 GAS 發送。若按「確認」會觸發取消，可能是 SayDou 端流程設計（例如「確認」被當成「取消」或觸發了取消 API）。
+- **建議**：與 **SayDou 原廠** 確認：客人按「確認」後預期行為是「確認出席」還是會觸發取消；必要時請他們調整推播或後台流程，避免每位客人都需打電話才能取消。

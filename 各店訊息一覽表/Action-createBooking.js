@@ -242,9 +242,8 @@ function getAvailableStaffIds_Reborn(date, time, durationMin, sayId, token) {
   
   const busyStaffIds = new Set();
 
-  // (A) 檢查預約
+  // (A) 檢查預約（含待確認皆視為佔用，與空位顯示一致）
   reservations.forEach(r => {
-    if (r.aprove !== "Y") return;
     const rStart = Core.isoToMinutes(r.rsvtim);
     const rEnd = Core.isoToMinutes(r.endtim);
     

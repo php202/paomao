@@ -1,0 +1,10 @@
+{
+  "name": "line-checkin",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "push": "clasp push --force",
+    "deploy": "clasp deploy -i AKfycby4JvdNSueVmq1_gG-mrRL0IfR4kPm1nX2itxMDg1c7MWIvEgP2xd7rmSfoxmM3Lung2w -d 'Updated'",
+    "ship": "npm run push && npm run deploy"
+  }
+}

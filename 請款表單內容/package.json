@@ -1,0 +1,10 @@
+{
+  "name": "payment-forms",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "push": "clasp push --force",
+    "deploy": "clasp deploy -i AKfycbz4aNPS6AACT4o0nrLG_C32W6qZiMOMBADO2qRztqZ6YY_BmtrdqKdztx-15YdDvt4o -d 'Updated'",
+    "ship": "npm run push && npm run deploy"
+  }
+}

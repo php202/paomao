@@ -264,9 +264,9 @@ function isAnyResourceFree_(busyByResourceMerged, startMin, endMin) {
 }
 
 function listAvailableSlotsOneDay_(reservations, storeId, slotTimes, courseMinutes, defaultDateStr) {
+  // 佔用時段：凡有預約（含待確認 aprove!=='Y'）都算佔用，與後台「很多時段已滿」一致，避免顯示已滿的時段
   var filtered = reservations.filter(function(r) {
-    if (r.aprove !== "Y") return false;
-    if (String(r.storid) !== String(storeId)) return false; 
+    if (String(r.storid) !== String(storeId)) return false;
     if (!r.rsvtim || !r.endtim) return false;
     var isRest = (r.rsname && String(r.rsname).trim() === "休息")
               || (r.rsphon && String(r.rsphon).trim() === "0000000000");

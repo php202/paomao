@@ -1,0 +1,11 @@
+{
+  "name": "paomao-core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PaoMao_Core（Core API）。網址不可變動：僅能 clasp deploy -i <既有部署ID> 更新既有網路應用程式部署，勿用 clasp deploy 產生新部署。",
+  "scripts": {
+    "push": "clasp push --force",
+    "deploy": "clasp deploy -i AKfycbwJ1TgMLuTdMjaZXtaTRpKz5MdnRLA7MIAqc3N-reSR6HGe8WcH8V5yEyvTVkA1lG6prg -d 'Updated'",
+    "ship": "npm run push && npm run deploy"
+  }
+}

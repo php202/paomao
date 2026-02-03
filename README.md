@@ -8,15 +8,11 @@
 
 ---
 
-## Push 行為：只更新現有程式，不建立新版本
+## Push / Deploy 行為
 
-- **日常更新**：在對應專案資料夾內執行 `clasp push` 即可，只會更新該專案的程式碼，**不會**建立新的 Apps Script 版本。
-- **不要**在例行 push 時執行 `clasp version` 或 `clasp deploy`，以免產生多餘版本。
-- 若需要部署（deploy）到正式環境，請用現有版本號部署，例如：
-  ```bash
-  clasp deploy --versionNumber 1 --description "現有版本"
-  ```
-  或先 `clasp versions` 查出版本號，再用該版本 deploy。
+- **日常更新程式碼**：在對應專案資料夾內執行 `npm run push` 或 `clasp push --force`，只會更新程式碼，**不會**建立新版本或改變 Web App URL。
+- **部署（更新既有 Web App）**：在該專案目錄執行 `npm run deploy` 或 `npm run ship`（先 push 再 deploy）。**必須**使用既有部署 ID：`clasp deploy -i <DEPLOYMENT_ID> -d 'Updated'`，詳見 **DEPLOY.md**。
+- 各專案 **package.json** 已含 `push`、`deploy`、`ship`；請將 `deploy` 腳本中的 `YOUR_DEPLOYMENT_ID` 改為該專案在「管理部署」中的**網路應用程式**部署 ID。
 
 ---
 
@@ -34,7 +30,7 @@
 | 最近的泡泡貓 | 最近的泡泡貓 |
 | 請款表單內容 | 請款表單 |
 
-每個專案目錄內：`clasp pull` 拉遠端、`clasp push` 推本地（不創新版本）。  
+每個專案目錄內：`clasp pull` 拉遠端；`npm run ship` = push + 以既有部署 ID 更新部署（不變更網址）。根目錄 **gas** 的 `npm run ship` 會對所有子專案依序執行該專案的 `npm run ship`（push + deploy）。各專案須在 package.json 填寫既有部署 ID，見 **DEPLOY.md**。  
 **資料夾名稱** = Apps Script 專案名稱（對照表與 scriptId 見 `GAS_PROJECTS.md`）。
 
 ---
