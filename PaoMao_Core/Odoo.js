@@ -41,14 +41,15 @@ function getOdooInvoiceJSON(resId) {
   // 我們需要另外去讀取「主表 (account.move)」來拿總金額
   console.log(`單據 ${resId} 無商品明細，嘗試讀取總金額 (視為付款單)...`);
   
-  const url = `${ODOO_CONFIG.url}/jsonrpc`;
+  const odoo = getOdooConfig();
+  const url = `${odoo.url}/jsonrpc`;
   try {
     // 1. 登入 (Authenticate)
     const authBody = {
       jsonrpc: "2.0", method: "call",
       params: {
         service: "common", method: "authenticate",
-        args: [ODOO_CONFIG.db, ODOO_CONFIG.username, ODOO_CONFIG.password, {}]
+        args: [odoo.db, odoo.username, odoo.password, {}]
       }
     };
     const resAuth = UrlFetchApp.fetch(url, {method:"post", contentType:"application/json", payload:JSON.stringify(authBody)});
@@ -62,7 +63,7 @@ function getOdooInvoiceJSON(resId) {
       params: {
         service: "object", method: "execute_kw",
         args: [
-          ODOO_CONFIG.db, uid, ODOO_CONFIG.password,
+          odoo.db, uid, odoo.password,
           'account.move', 'read',
           [parseInt(resId)], 
           ['name', 'ref', 'amount_total', 'payment_state'] 
@@ -89,14 +90,15 @@ function getOdooInvoiceJSON(resId) {
 }
 // 通用查詢器 (含錯誤處理)
 function fetchOdooData(modelName, domain, fields) {
-  const url = `${ODOO_CONFIG.url}/jsonrpc`;
+  const odoo = getOdooConfig();
+  const url = `${odoo.url}/jsonrpc`;
   try {
     // 1. 登入
     const authBody = {
       jsonrpc: "2.0", method: "call",
       params: {
         service: "common", method: "authenticate",
-        args: [ODOO_CONFIG.db, ODOO_CONFIG.username, ODOO_CONFIG.password, {}]
+        args: [odoo.db, odoo.username, odoo.password, {}]
       }
     };
     const resAuth = UrlFetchApp.fetch(url, {method:"post", contentType:"application/json", payload:JSON.stringify(authBody)});
@@ -113,7 +115,7 @@ function fetchOdooData(modelName, domain, fields) {
       params: {
         service: "object", method: "execute_kw",
         args: [
-          ODOO_CONFIG.db, uid, ODOO_CONFIG.password,
+          odoo.db, uid, odoo.password,
           modelName, 'search_read',
           [domain], // 搜尋條件
           { fields: fields } // 指定欄位

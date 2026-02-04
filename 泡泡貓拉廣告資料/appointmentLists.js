@@ -4,15 +4,22 @@ function appointmentLists() {
 
   const startDate = sheet.getRange('A2').getValue();
   const endDate = sheet.getRange('B2').getValue();
-  
-  // 1. 取得店家列表（透過 Core 中央 API，不需程式庫權限）
-  const stores = CoreApi.getStoresInfo(); 
+  if (!startDate || !endDate) {
+    throw new Error("請在 A2、B2 填入開始與結束日期（例如 2026-02-01）");
+  }
 
-  // 2. 清除第 5 列以下資料 (保留標題與參數列)
-  // 假設資料是從第 5 列開始寫入 (A4是標題?)
+  // 1. 取得店家列表（透過 Core 中央 API，網路應用程式部署）
+  const stores = CoreApi.getStoresInfo();
+  if (!stores || stores.length === 0) {
+    throw new Error("無法取得店家列表，請確認 PAO_CAT_CORE_API_URL 與 PAO_CAT_SECRET_KEY 已設定，且 Core API 有回傳店家。");
+  }
+
+  // 2. 清除第 5 列以下資料（保留第 1～4 列：標題與參數列）
+  // getRange(row, column, numRows, numColumns)：從第 5 列起清除到最後一列
   const lastRow = sheet.getLastRow();
-  if (lastRow >= 4) {
-    sheet.getRange(4, 1, lastRow - 3, sheet.getLastColumn()).clearContent();
+  if (lastRow >= 5) {
+    const numRowsToClear = lastRow - 4;
+    sheet.getRange(5, 1, numRowsToClear, sheet.getLastColumn()).clearContent();
   }
 
   // 設定日期比較基準
@@ -46,8 +53,8 @@ function appointmentLists() {
       
     } catch (e) {
       console.error(`店家 ${currentStore.name} 處理失敗: ${e}`);
-      // 發生錯誤時，塞入一行錯誤提示，避免資料錯位
-      allOutputRows.push([currentStore.name, "讀取失敗", "", "", "", "", "", 0, "", "", 0, 0, "0%", "0%"]);
+      // 發生錯誤時塞入一行（欄數須與 fetchData 回傳一致：12 欄）
+      allOutputRows.push([currentStore.name, "讀取失敗", "", "", "", "", 0, 0, "", "", "0%", "0%"]);
     }
   }
 
@@ -80,9 +87,17 @@ function fetchData(storeName, data) {
   const ig = getTotal('instagram');
   const total = line + web2 + phone + google + pad + ig;
 
-  // 2. 計算新舊客總數 (分母)
-  const newCount = data.b.new || 0;
-  const oldCount = data.b.old || 0;
+  // 2. 計算新舊客總數 (分母)；API 可能回傳 { new, old } 或陣列
+  let newCount = 0, oldCount = 0;
+  if (data.b && typeof data.b === "object") {
+    if (Array.isArray(data.b) && data.b[0]) {
+      newCount = data.b[0].new != null ? Number(data.b[0].new) : 0;
+      oldCount = data.b[0].old != null ? Number(data.b[0].old) : 0;
+    } else {
+      newCount = data.b.new != null ? Number(data.b.new) : 0;
+      oldCount = data.b.old != null ? Number(data.b.old) : 0;
+    }
+  }
   // 如果新+舊=0，分母設為 1 避免除以零 (或者讓百分比顯示 0%)
   const totalMemberOps = (newCount + oldCount) > 0 ? (newCount + oldCount) : 1; 
 

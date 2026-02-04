@@ -8,8 +8,9 @@
 
 ---
 
-## Push / Deploy 行為
+## Push / Deploy 行為（一律不 pull，以本機為準發布新版本）
 
+- **不執行 `clasp pull`**。以本機程式碼為準，只做 push / ship 發布新版本；詳見 **DEPLOY.md**。
 - **日常更新程式碼**：在對應專案資料夾內執行 `npm run push` 或 `clasp push --force`，只會更新程式碼，**不會**建立新版本或改變 Web App URL。
 - **部署（更新既有 Web App）**：在該專案目錄執行 `npm run deploy` 或 `npm run ship`（先 push 再 deploy）。**必須**使用既有部署 ID：`clasp deploy -i <DEPLOYMENT_ID> -d 'Updated'`，詳見 **DEPLOY.md**。
 - 各專案 **package.json** 已含 `push`、`deploy`、`ship`；請將 `deploy` 腳本中的 `YOUR_DEPLOYMENT_ID` 改為該專案在「管理部署」中的**網路應用程式**部署 ID。
@@ -20,7 +21,7 @@
 
 | 資料夾 | 說明 |
 |--------|------|
-| PaoMao_Core | 共用程式碼來源，需部署為程式庫供其他專案使用 |
+| PaoMao_Core | 共用程式碼來源；對外 API 網址（PAO_CAT_CORE_API_URL）請用「網路應用程式」部署，見 **DEPLOY.md** |
 | 日報表 產出 | 日報表 |
 | 各店訊息一覽表 | 各店訊息 |
 | 每週三：顧客退費 | 顧客退費 |

@@ -6,28 +6,36 @@
  * @param {number} needPeople - 需要人數 (通常為 1)
  * @param {number} durationMin - 服務時長 (分鐘)
  * @param {Object} options - 選填 { weekDays: [0-6], timeStart: "11:00", timeEnd: "21:00", token: "..." }
- * @return {Object} { status: boolean, data: Array, totalStaff: number, error: string }
+ * @return {Object} { status: boolean, data: Array, totalStaff: number, validStaffSet: Array<number>, error: string }
  */
 const token = getBearerTokenFromSheet();
 
 function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, options) {
   options = options || {};
-  
+  // 呼叫端可傳入 token（例如各店訊息一覽表 Web App 的 CoreApi.getBearerToken），否則用腳本載入時的 token
+  const tokenToUse = (options.token != null && options.token !== "") ? options.token : token;
+
   // 1. 參數與時區設定
   const TZ = Session.getScriptTimeZone() || 'Asia/Taipei';
   const weekDays = options.weekDays || [0, 1, 2, 3, 4, 5, 6];
   const timeStartStr = options.timeStart || "11:00";
   const timeEndStr = options.timeEnd || "21:00";
 
-  if (!token) return { status: false, error: "Missing Token", data: [] };
+  if (!tokenToUse) return { status: false, error: "Missing Token", data: [], validStaffSet: [] };
 
   try {
     // 2. 取得有效員工 (計算總產能)
-    const validStaffSet = getStoreCapacityIds(sayId, token);
-    const totalStaff = (validStaffSet && validStaffSet.size > 0) ? validStaffSet.size : 4; // 預設產能
+    const validStaffSet = getStoreCapacityIds(sayId, tokenToUse);
 
     // 3. 取得預約與排休資料
-    const { reservations, dutyoffs } = fetchReservationsAndOffs(sayId, startDate, endDate, token);
+    const { reservations, dutyoffs } = fetchReservationsAndOffs(sayId, startDate, endDate, tokenToUse);
+
+    // 3.1 將預約／排休中出現的該店員工也納入產能（例如每刻01/02 若 baseData 未回傳在職仍算可預約人力）
+    const sayIdStr = String(sayId);
+    const addStaffId = (set, id) => { if (id != null && Number(id) > 0) set.add(Number(id)); };
+    (reservations || []).forEach(r => { if (r.storid != null && String(r.storid) === sayIdStr && r.usrsid) addStaffId(validStaffSet, r.usrsid); });
+    (dutyoffs || []).forEach(d => { if (d.storid != null && String(d.storid) === sayIdStr && d.usrsid) addStaffId(validStaffSet, d.usrsid); });
+    const totalStaff = (validStaffSet && validStaffSet.size > 0) ? validStaffSet.size : 4; // 預設產能
 
     // 4. 準備計算
     const availableSlots = [];
@@ -53,6 +61,9 @@ function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, 
         const dailyReservations = filterEventsByDate(reservations, dateString);
         const dailyDutyoffs = filterEventsByDate(dutyoffs, dateString);
 
+        // 當日可預約人力 = validStaffSet（含 baseData 在職 + 預約/排休中出現的每刻01、每刻02 等），確保 01/02 身份也算可預約人力
+        const totalStaffForDay = validStaffSet.size > 0 ? validStaffSet.size : 4;
+
         const timesWithCount = []; // { time, count } 供明日預約清單顯示「14:00×1、17:00×2」
         dayTimeSlots.forEach(timeStr => {
           const checkStartMin = hhmmToMinutes(timeStr);
@@ -70,36 +81,43 @@ function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, 
              if (checkStartMin < (nowMin + 30)) return;
           }
 
-          // (C) 計算忙碌人數 (Busy Count)
-          let busyCount = 0;
+          // (C) 計算「實際忙碌的員工」集合，改以人頭而非事件數量，確保與多人預約邏輯一致
+          const busyStaffIds = new Set();
 
           // C-1. 檢查預約占用（含待確認皆算佔用，與後台「已滿」一致）
           for (const r of dailyReservations) {
-            if (validStaffSet.size > 0 && r.usrsid && !validStaffSet.has(r.usrsid)) continue;
+            const ru = r.usrsid != null ? Number(r.usrsid) : 0;
+            if (validStaffSet.size > 0 && ru > 0 && !validStaffSet.has(ru)) continue;
             if (!r.rsvtim || !r.endtim) continue;
             const rStart = isoToMinutes(r.rsvtim);
             const rEnd = isoToMinutes(r.endtim);
             
             // 重疊判定: !(End <= Start || Start >= End)
             if (rEnd > checkStartMin && rStart < checkEndMin) {
-              busyCount++;
+              if (ru > 0) busyStaffIds.add(ru);
             }
           }
 
           // C-2. 檢查排休占用
           for (const d of dailyDutyoffs) {
-            if (validStaffSet.size > 0 && d.usrsid && !validStaffSet.has(d.usrsid)) continue;
+            const du = d.usrsid != null ? Number(d.usrsid) : 0;
+            if (validStaffSet.size > 0 && du > 0 && !validStaffSet.has(du)) continue;
             
             const dStart = isoToMinutes(d.startm);
             const dEnd = isoToMinutes(d.endtim);
             
             if (dEnd > checkStartMin && dStart < checkEndMin) {
-              busyCount++;
+              if (du > 0) busyStaffIds.add(du);
             }
           }
 
-          // (D) 判定: 總人數 - 忙碌人數 >= 需要人數，並記錄空位數
-          const availableCount = totalStaff - busyCount;
+          // (D) 判定：可用人頭數 = 當日人力（validStaffSet）扣掉忙碌員工數
+          let availableCount = 0;
+          validStaffSet.forEach(id => {
+            if (!busyStaffIds.has(id)) availableCount++;
+          });
+
+          // 只有在「同時至少有 needPeople 位員工，且整個 duration 區間都沒有被預約/排休」時，才視為此起始時間可預約
           if (availableCount >= needPeople) {
             validTimesForDay.push(timeStr);
             timesWithCount.push({ time: timeStr, count: availableCount });
@@ -132,71 +150,101 @@ function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, 
     return {
       status: true,
       data: availableSlots,
-      totalStaff: totalStaff
+      totalStaff: totalStaff,
+      validStaffSet: Array.from(validStaffSet)
     };
 
   } catch (err) {
     console.error(`[Core] findAvailableSlots Error: ${err.toString()}`);
-    return { status: false, error: err.toString(), data: [] };
+    return { status: false, error: err.toString(), data: [], validStaffSet: [] };
   }
 }
+/** baseData API 網址，供快取與取得店家／職位／員工用 */
+var BASE_DATA_API_URL = "https://saywebdatafeed.saydou.com/api/management/baseData?kind%5B%5D=stores&kind%5B%5D=positions&kind%5B%5D=staffs";
+
+/** 是否為「櫃檯」人力（店內櫃檯1、店內櫃檯2 等排除，只算正規人力） */
+function isCounterStaff(s) {
+  var cod = (s && s.usrcod) ? String(s.usrcod) : "";
+  var nam = (s && s.usrnam) ? String(s.usrnam) : "";
+  return cod.indexOf("櫃檯") >= 0 || nam.indexOf("櫃檯") >= 0;
+}
+
 /**
- * 取得指定店家的有效員工 ID (含快取機制)
- * @param {string} sayId - 店家 SayDou ID
+ * 取得 baseData 完整回應（快取 6 小時，全專案共用）
  * @param {string} token - API Token
- * @return {Set<string>} 有效員工 ID 集合
+ * @return {{ status: boolean, positions: Array, stores: Array, staffs: Array }} 或 null
  */
-function getStoreCapacityIds(sayId) {
-  const cache = CacheService.getScriptCache();
-  const cacheKey = `STORE_STAFF_${sayId}`;
-  const cachedData = cache.get(cacheKey);
-
-  if (cachedData) return new Set(JSON.parse(cachedData));
-
-  const apiUrl = "https://saywebdatafeed.saydou.com/api/management/baseData?kind%5B%5D=stores&kind%5B%5D=positions&kind%5B%5D=staffs";
+function getBaseDataCached(token) {
+  var cache = CacheService.getScriptCache();
+  var cacheKey = "BASE_DATA_V1";
+  var raw = cache.get(cacheKey);
+  if (raw) {
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
   try {
-    const response = UrlFetchApp.fetch(apiUrl, {
+    var response = UrlFetchApp.fetch(BASE_DATA_API_URL, {
       method: "get",
       headers: { "Authorization": "Bearer " + token },
       muteHttpExceptions: true
     });
-    const json = JSON.parse(response.getContentText());
-    const validIds = [];
-    
-    if (json.staffs && json.staffs[0]) {
-       const categories = json.staffs[0];
-       Object.keys(categories).forEach(role => {
-         categories[role].forEach(s => {
-           // status === 'on' 代表在職且啟用
-           if (String(s.msstor) === String(sayId) && s.status === 'on' && s.usrsid) {
-             validIds.push(s.usrsid);
-           }
-         });
-       });
+    var json = JSON.parse(response.getContentText());
+    if (json && json.status === true) {
+      cache.put(cacheKey, JSON.stringify(json), 21600); // 6hr
+      return json;
     }
-    
-    if (validIds.length > 0) {
-      cache.put(cacheKey, JSON.stringify(validIds), 21600); // 6hr
-    }
-    return new Set(validIds); 
+    return null;
   } catch (e) {
-    console.error(`[Core] getStoreCapacityIds Error: ${e}`);
-    return new Set();
+    console.error("[Core] getBaseDataCached Error: " + e);
+    return null;
   }
+}
+
+/**
+ * 取得指定店家的有效員工 ID（正規人力，排除櫃檯1/櫃檯2；先讀 baseData 快取再依店家篩選）
+ * @param {string} sayId - 店家 SayDou ID
+ * @param {string} [token] - API Token（可選，未傳則用 getBearerTokenFromSheet）
+ * @return {Set<number>} 有效員工 ID 集合
+ */
+function getStoreCapacityIds(sayId, token) {
+  var cache = CacheService.getScriptCache();
+  var storeKey = "STORE_STAFF_V1_" + String(sayId);
+  var cachedData = cache.get(storeKey);
+  if (cachedData) return new Set(JSON.parse(cachedData));
+
+  var t = (token != null && token !== "") ? token : getBearerTokenFromSheet();
+  if (!t) return new Set();
+  var json = getBaseDataCached(t);
+  var validIds = [];
+
+  if (json && json.staffs && json.staffs[0]) {
+    var categories = json.staffs[0];
+    Object.keys(categories).forEach(function (role) {
+      categories[role].forEach(function (s) {
+        if (String(s.msstor) !== String(sayId)) return;
+        if (s.status !== "on" || s.usrsid == null || Number(s.usrsid) <= 0) return;
+        if (isCounterStaff(s)) return; // 排除櫃檯，只算正規人力
+        validIds.push(Number(s.usrsid));
+      });
+    });
+  }
+
+  if (validIds.length > 0) cache.put(storeKey, JSON.stringify(validIds), 21600);
+  return new Set(validIds);
 }
 /**
  * 取得指定範圍內的預約與排休資料 (SayDou API)
  * @param {string} sayId 
  * @param {string} startDate (yyyy-MM-dd)
  * @param {string} endDate (yyyy-MM-dd)
- * @param {string} token 
+ * @param {string} [token] - 選填；未傳則用腳本載入時的 getBearerTokenFromSheet()
  */
-function fetchReservationsAndOffs(sayId, startDate, endDate) {
+function fetchReservationsAndOffs(sayId, startDate, endDate, token) {
+  const tokenToUse = (token != null && token !== "") ? token : (typeof getBearerTokenFromSheet === "function" ? getBearerTokenFromSheet() : "");
   const apiUrl = `https://saywebdatafeed.saydou.com/api/management/calendar/events/full?startDate=${startDate}&endDate=${endDate}&storid=${sayId}&status[]=reservation&status[]=hasshow&status[]=confirm&status[]=checkout&status[]=noshow&holiday=1`;
   try {
     const response = UrlFetchApp.fetch(apiUrl, {
       method: "get",
-      headers: { "Authorization": "Bearer " + token },
+      headers: { "Authorization": "Bearer " + tokenToUse },
       muteHttpExceptions: true
     });
     const json = JSON.parse(response.getContentText());

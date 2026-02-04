@@ -21,16 +21,23 @@ function getSlots(e) {
 
   const configData = configSheet.getDataRange().getValues();
   let targetSayId = null;
+  let isReply = true;
 
   for (let i = 1; i < configData.length; i++) {
     if (configData[i][6] && configData[i][6].toString().trim() === botId) {
       targetSayId = configData[i][5];
+      var rawReply = configData[i][8];
+      isReply = (rawReply == null || rawReply === "") ? true : (String(rawReply).toLowerCase().trim() === "false" || rawReply === 0 ? false : true);
       break;
     }
   }
 
   if (!targetSayId) {
     return Core.jsonResponse({error: '找不到此 Bot ID 對應的「神美ID」', botId: botId});
+  }
+
+  if (isReply === false) {
+    return Core.jsonResponse({status: 'success', text: '此店家未開放查詢可預約時間，請直接聯繫店家。'});
   }
 
   // 讀取前端傳入的搜尋條件（與查詢結果一致）
@@ -65,6 +72,7 @@ function cleanData(sayId, options) {
 
   var startDateStr = options.startDate || "";
   var endDateStr = options.endDate || "";
+  var peopleVal = (options.people != null && !isNaN(options.people)) ? Number(options.people) : 1;
   var durationVal = (options.duration != null && !isNaN(options.duration)) ? Number(options.duration) : 1.5;
   var courseMinutes = Math.round(durationVal * 60);
   if (courseMinutes <= 0) courseMinutes = 90;
@@ -115,28 +123,60 @@ function cleanData(sayId, options) {
     }
   }
 
+  // --- 2. 改用 Core.findAvailableSlots 作為底層邏輯（含人數與排休判斷） ---
+  // weekDaysArray 供 Core 濾星期，若沒指定則查全部 0-6
+  var weekDaysArray = Object.keys(weekDaySet).map(function (k) { return parseInt(k, 10); }).filter(function (n) { return !isNaN(n); });
+  if (!weekDaysArray.length) weekDaysArray = [0,1,2,3,4,5,6];
+
+  // 若未指定起迄日，沿用 datesToQuery 的最小/最大日期
+  if (!startDateStr || !endDateStr) {
+    if (datesToQuery.length > 0) {
+      startDateStr = datesToQuery[0];
+      endDateStr = datesToQuery[datesToQuery.length - 1];
+    } else {
+      var todayStr = Utilities.formatDate(now, TZ, "yyyy-MM-dd");
+      startDateStr = todayStr;
+      endDateStr = todayStr;
+    }
+  }
+
+  var coreResult = Core.findAvailableSlots(
+    String(sayId),
+    startDateStr,
+    endDateStr,
+    peopleVal,
+    courseMinutes,
+    {
+      weekDays: weekDaysArray,
+      timeStart: timeStartStr || "11:00",
+      timeEnd: timeEndStr || "21:00",
+      token: token
+    }
+  );
+  if (!coreResult || coreResult.status !== true) {
+    throw new Error(coreResult && coreResult.error ? coreResult.error : "Core.findAvailableSlots 失敗");
+  }
+
+  var slotsData = Array.isArray(coreResult.data) ? coreResult.data : [];
+  var byDate = {};
+  slotsData.forEach(function (d) {
+    if (d && d.date) byDate[String(d.date)] = d;
+  });
+
+  // --- 3. 依原本格式輸出結果文字 ---
   var lines = [];
   for (var i = 0; i < datesToQuery.length; i++) {
     var dayStr = datesToQuery[i];
     var dayDate = parseDateOnly_(dayStr);
     var weekdayZh = dayDate ? ("星期" + "日一二三四五六".charAt(dayDate.getDay())) : "";
 
-    var resp = runEmptyApi_(dayStr, sayId, token);
-    var reservations = normalizeReservations_(resp);
-
-    var result = listAvailableSlotsOneDay_(
-      reservations,
-      String(sayId),
-      slotTimes,
-      courseMinutes,
-      dayStr
-    );
-
-    var prettySlots = (result.availableSlots && result.availableSlots.length)
-      ? result.availableSlots.join("、")
-      : "（無）";
-    if (!reservations.length) {
-      prettySlots = slotTimes.join("、");
+    var dayData = byDate[dayStr];
+    var prettySlots;
+    if (dayData && Array.isArray(dayData.times) && dayData.times.length > 0) {
+      // 僅輸出 Core 判定可預約的起始時間
+      prettySlots = dayData.times.join("、");
+    } else {
+      prettySlots = "（無）";
     }
 
     // 顯示日期不帶年份（MM-DD），LINE bot / 查詢空位產出一致
@@ -209,6 +249,14 @@ function normalizeReservations_(resp) {
   return [];
 }
 
+/** 把各種回傳樣式統一成 dutyoffs 陣列（排休），供可預約人力一併納入佔用 */
+function normalizeDutyoffs_(resp) {
+  if (!resp) return [];
+  if (Array.isArray(resp.dutyoffs)) return resp.dutyoffs;
+  if (resp.data && Array.isArray(resp.data.dutyoffs)) return resp.data.dutyoffs;
+  return [];
+}
+
 // ===== 時間/區間工具與主邏輯 =====
 
 function dateKeyFromISODateTime_(s) {
@@ -263,10 +311,12 @@ function isAnyResourceFree_(busyByResourceMerged, startMin, endMin) {
   return false;
 }
 
-function listAvailableSlotsOneDay_(reservations, storeId, slotTimes, courseMinutes, defaultDateStr) {
-  // 佔用時段：凡有預約（含待確認 aprove!=='Y'）都算佔用，與後台「很多時段已滿」一致，避免顯示已滿的時段
-  var filtered = reservations.filter(function(r) {
-    if (String(r.storid) !== String(storeId)) return false;
+function listAvailableSlotsOneDay_(reservations, dutyoffs, storeId, slotTimes, courseMinutes, defaultDateStr) {
+  dutyoffs = dutyoffs || [];
+  var storeIdStr = String(storeId);
+  // 佔用時段：預約（含待確認）＋排休，凡有預約或排休的該店員工都列入人力，其佔用時段才正確
+  var filtered = (reservations || []).filter(function(r) {
+    if (String(r.storid) !== storeIdStr) return false;
     if (!r.rsvtim || !r.endtim) return false;
     var isRest = (r.rsname && String(r.rsname).trim() === "休息")
               || (r.rsphon && String(r.rsphon).trim() === "0000000000");
@@ -274,12 +324,8 @@ function listAvailableSlotsOneDay_(reservations, storeId, slotTimes, courseMinut
     return true;
   });
 
-  if (!filtered.length) {
-    return { date: defaultDateStr, availableSlots: [] };
-  }
-
-  var dateKey = dateKeyFromISODateTime_(filtered[0].rsvtim);
   var byResource = {};
+  var dateKey = defaultDateStr;
   for (var i = 0; i < filtered.length; i++) {
     var r = filtered[i];
     var rid = String(r.usrsid || "__unknown__");
@@ -287,7 +333,23 @@ function listAvailableSlotsOneDay_(reservations, storeId, slotTimes, courseMinut
     var endMin = minutesFromMidnight_(String(r.endtim).replace(" ", "T"));
     if (!byResource[rid]) byResource[rid] = [];
     byResource[rid].push([startMin, endMin]);
+    if (!dateKey && r.rsvtim) dateKey = dateKeyFromISODateTime_(r.rsvtim);
   }
+  for (var j = 0; j < dutyoffs.length; j++) {
+    var d = dutyoffs[j];
+    if (String(d.storid) !== storeIdStr || !d.startm || !d.endtim) continue;
+    var rid = String(d.usrsid || "__unknown__");
+    var startMin = minutesFromMidnight_(d.startm);
+    var endMin = minutesFromMidnight_(String(d.endtim).replace(" ", "T"));
+    if (!byResource[rid]) byResource[rid] = [];
+    byResource[rid].push([startMin, endMin]);
+    if (!dateKey && d.startm) dateKey = dateKeyFromISODateTime_(d.startm);
+  }
+
+  if (Object.keys(byResource).length === 0) {
+    return { date: defaultDateStr, availableSlots: [] };
+  }
+  dateKey = dateKey || defaultDateStr;
 
   var busyByResourceMerged = [];
   var keys = Object.keys(byResource);

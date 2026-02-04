@@ -56,7 +56,7 @@ var AI_BRIEFING_SYSTEM_PROMPT = "你是「泡泡貓」(PAO PAO MAO) 美容中心
   + "💰 消費畫像：[客單價等級] / [偏好項目] / [上次消費距今時間；若剛結帳則另依歷次間隔說明保養關心]\n"
   + "🗣 近期話題與破冰句：[僅放與店內課程/品牌相關的破冰句與話題]\n"
   + "📝 服務建議：[給美容師的一句話，僅引用資料集內課程，勿提精油或按摩；操作注意請依上述話術規範]\n"
-  + "💬 額外聊天／新話題：（選填）共鳴話題或店內沒有的東西，若要當新知識、新話題使用，請另外再開此區塊撰寫，與主戰報分開；無則可省略。";
+  + "💬 額外聊天／新話題：（選填）共鳴話題或店內沒有的東西，例如**醫美新知識**（療程趨勢、術後修復觀念等）、流行、時事、閒聊等。若要當新知識／新話題使用，請另外再開此區塊撰寫，與主戰報分開；無則可省略。";
 
 var AI_BRIEFING_CONFIG = {
   /** OpenAI 戰報用模型（建議 gpt-4o 以產出完整戰報） */
@@ -234,10 +234,10 @@ var AI_CRM_SYSTEM_PROMPT = "你是「泡泡貓」(PAO PAO MAO) 美容中心的�
   + "- **剛結帳（間隔 0 天）**：填表單常發生在剛結完帳，本次距上次會是 0 天。請改依資料中的「【消費間隔】歷次回訪間隔」觀察回訪節奏與時間長短，在【週期與護理建議】中**另外關心客人最近的保養狀況**（如：上次隔 X 天、再上次隔 Y 天，可提醒居家保養或下次預約節奏）。\n\n"
   + "四、輸出結構請依序包含\n"
   + "1. 【⚡️ 秒懂摘要】一行。\n"
-  + "2. 【專屬話題攻略】僅放**與店內課程/品牌資料集相關**的破冰句與共鳴話題（對應做過的課程、會員加購、套票等）。勿放店內沒有的療程或產品。\n"
-  + "3. 【週期與護理建議】含上次消費日、間隔天數（若為 0 天請另依歷次消費間隔說明回訪節奏與保養關心）、品牌建議週期 20-28 天、水光/補水效期 3-5 天可引用、話術引導與今日重點。\n"
-  + "4. 【今日重點】操作注意：小氣泡若怕痛寫「可調整吸力、細部清潔注意力道」勿僅寫最小號吸頭；可推薦課程（僅限資料集內項目），勿提精油或按摩。久未回訪建議「定期小氣泡+水光肌」維持代謝、居家保養好吸收。\n"
-  + "5. 【額外聊天／新話題】（選填）**共鳴話題**或**店內沒有的東西**（新知識、流行、時事、閒聊等），若要當新知識／新話題使用，請**另外再開一個**此區塊撰寫，與主戰報分開；主戰報勿混入店外話題，供美容師自行決定是否當額外聊天內容。無則可省略此項。\n\n"
+  + "2. 【週期與護理建議】含上次消費日、間隔天數（若為 0 天請另依歷次消費間隔說明回訪節奏與保養關心）、品牌建議週期 20-28 天、水光/補水效期 3-5 天可引用、話術引導與今日重點。\n"
+  + "3. 【今日重點】操作注意：小氣泡若怕痛寫「可調整吸力、細部清潔注意力道」勿僅寫最小號吸頭；可推薦課程（僅限資料集內項目），勿提精油或按摩。久未回訪建議「定期小氣泡+水光肌」維持代謝、居家保養好吸收。\n"
+  + "4. 【專屬話題攻略】僅放**與店內課程/品牌資料集相關**的破冰句與共鳴話題（對應做過的課程、會員加購、套票等）。勿放店內沒有的療程或產品。\n"
+  + "5. 【額外聊天／新話題】（選填）**共鳴話題**或**店內沒有的東西**（例如醫美新知識、流行、時事、閒聊等），若要當新知識／新話題使用，請**另外再開一個**此區塊撰寫，與主戰報分開；主戰報勿混入店外話題，供美容師自行決定是否當額外聊天內容。無則可省略此項。\n\n"
   + "五、注意事項\n"
   + "- 消費紀錄的「備註」權重最高；若有「非本人」、「房東女兒」等字眼，必須在結果中高亮顯示。\n"
   + "- Line 訊息若包含「日報」、「活動文件」、「總公司」，請標記此人可能為內部員工或帳號誤用。\n"
@@ -254,7 +254,7 @@ var AI_CRM_SYSTEM_PROMPT = "你是「泡泡貓」(PAO PAO MAO) 美容中心的�
 function callGeminiForCRMAnalysis(userContent, apiKey) {
   var key = apiKey || getApiKeyFromProperties("GEMINI_API_KEY");
   if (!key) throw new Error("請在指令碼屬性設定 GEMINI_API_KEY");
-  var combined = AI_CRM_SYSTEM_PROMPT + "\n\n---\n\n請根據以下客人資料，依上述格式產出「接待戰報」（含秒懂摘要、專屬話題攻略、週期與護理建議、今日重點；共鳴話題或店內沒有的新知識／新話題請另外寫在「額外聊天／新話題」區塊）。\n\n" + userContent;
+  var combined = AI_CRM_SYSTEM_PROMPT + "\n\n---\n\n請根據以下客人資料，依上述格式產出「接待戰報」（含秒懂摘要、週期與護理建議、今日重點、專屬話題攻略；共鳴話題或店內沒有的新知識／新話題請另外寫在「額外聊天／新話題」區塊）。\n\n" + userContent;
   var url = "https://generativelanguage.googleapis.com/v1beta/models/" + AI_BRIEFING_CONFIG.GEMINI_MODEL + ":generateContent?key=" + key;
   var payload = {
     contents: [{ role: "user", parts: [{ text: combined }] }],
@@ -455,7 +455,9 @@ function buildTomorrowBriefingForManagers(dateStr) {
     tomorrow.setDate(tomorrow.getDate() + 1);
     dateStr = Utilities.formatDate(tomorrow, "Asia/Taipei", "yyyy-MM-dd");
   }
-  var byStore = typeof getTomorrowReservationsByStore === "function" ? getTomorrowReservationsByStore(dateStr) : [];
+  var options = (arguments.length >= 2 && arguments[1] != null) ? arguments[1] : {};
+  var token = (options.token != null && options.token !== "") ? options.token : "";
+  var byStore = typeof getTomorrowReservationsByStore === "function" ? getTomorrowReservationsByStore(dateStr, { token: token }) : [];
   var out = { dateStr: dateStr, byStore: [] };
   for (var i = 0; i < byStore.length; i++) {
     var block = byStore[i];
@@ -468,6 +470,11 @@ function buildTomorrowBriefingForManagers(dateStr) {
       var phone = o.phone;
       var name = o.name || "—";
       var rsvtim = o.rsvtim || "";
+      var timeText = o.timeText || "";
+      if (!timeText && rsvtim) {
+        var tPart = String(rsvtim).split(/[T\s]/)[1] || "";
+        timeText = tPart.slice(0, 5);
+      }
       var staffName = o.staffName || "";
       var services = o.services || "";
       var aiResult = "";
@@ -477,6 +484,7 @@ function buildTomorrowBriefingForManagers(dateStr) {
         phone: phone || "",
         name: name,
         rsvtim: rsvtim,
+        timeText: timeText,
         staffName: staffName,
         services: services,
         aiResult: aiResult
@@ -500,7 +508,13 @@ function getTomorrowBriefingTextForStores(managedStoreIds) {
   if (!managedStoreIds || managedStoreIds.length === 0) {
     return "明日預約（AI 簡略）：請提供負責店家 ID。";
   }
-  var briefing = buildTomorrowBriefingForManagers();
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var dateStr = Utilities.formatDate(tomorrow, "Asia/Taipei", "yyyy-MM-dd");
+  if (typeof isTomorrowReportClosed === "function" && isTomorrowReportClosed(dateStr)) {
+    return "明日預約報告 " + dateStr + " 已關閉，當日不提供報告。";
+  }
+  var briefing = buildTomorrowBriefingForManagers(dateStr);
   var storeIdSet = {};
   managedStoreIds.forEach(function (id) { storeIdSet[String(id).trim()] = true; });
   var lines = ["📅 明日預約 " + briefing.dateStr + "（含 AI 簡略）", ""];
@@ -538,46 +552,78 @@ function getTomorrowBriefingAction(e) {
   return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.TEXT);
 }
 
+/** 明日預約報告關閉日（當日不提供預約清單／報告），格式 yyyy-MM-dd */
+var TOMORROW_REPORT_CLOSED_DATES = ["2026-02-04"];
+
+function isTomorrowReportClosed(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return false;
+  var d = String(dateStr).trim();
+  return TOMORROW_REPORT_CLOSED_DATES.indexOf(d) >= 0;
+}
+
 /**
  * Web App 用：doGet(e) 的 action=getTomorrowReservationList，讀取 storeIds 參數，回傳明日預約清單（JSON）供 LINE Carousel 使用。
  * @param {Object} e - doGet 的 event，e.parameter.storeIds 為逗號分隔的店家 ID
- * @returns {GoogleAppsScript.Content.TextOutput} JSON { dateStr, byStore: [ { storeId, storeName, items: [ { name, phone, rsvtim } ] } ] }
+ * @returns {GoogleAppsScript.Content.TextOutput} JSON { dateStr, byStore: [ ... ], closed?: boolean, message?: string }
  */
 function getTomorrowReservationListAction(e) {
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var dateStr = Utilities.formatDate(tomorrow, "Asia/Taipei", "yyyy-MM-dd");
+  if (isTomorrowReportClosed(dateStr)) {
+    var out = { dateStr: dateStr, byStore: [], closed: true, message: "明日預約報告 " + dateStr + " 已關閉，當日不提供預約清單。" };
+    return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+  }
   var storeIdsParam = (e && e.parameter && e.parameter.storeIds) ? String(e.parameter.storeIds).trim() : "";
   var storeIds = storeIdsParam ? storeIdsParam.split(",").map(function (s) { return s.trim(); }).filter(Boolean) : [];
-  var briefing = typeof buildTomorrowBriefingForManagers === "function" ? buildTomorrowBriefingForManagers() : { dateStr: "", byStore: [] };
+  var token = (typeof CoreApi !== "undefined" && CoreApi.getBearerToken) ? (function () { try { return CoreApi.getBearerToken(); } catch (err) { return ""; } })() : "";
+  var briefing = typeof buildTomorrowBriefingForManagers === "function" ? buildTomorrowBriefingForManagers(dateStr, { token: token }) : { dateStr: dateStr, byStore: [] };
   var storeIdSet = {};
   storeIds.forEach(function (id) { storeIdSet[String(id).trim()] = true; });
   var byStore = (briefing.byStore || []).filter(function (b) {
     return storeIdSet[b.storeId] || storeIdSet[b.storeName || ""];
   });
-  var dateStr = briefing.dateStr || "";
-  // 每店查明日可預約空位（時段列表），供 LINE 顯示「明日可預約空位：14:00、17:00、…」
-  if (dateStr && typeof Core !== "undefined" && typeof Core.findAvailableSlots === "function") {
+  if (!briefing.dateStr) briefing.dateStr = dateStr;
+  dateStr = briefing.dateStr || "";
+  // 每店查明日可預約空位：參照「訊息一覽搜尋空位」邏輯（Action-getSlots cleanData），與查詢空位結果一致
+  if (dateStr && typeof cleanData === "function") {
     for (var i = 0; i < byStore.length; i++) {
       var store = byStore[i];
       var slotsText = "—";
       try {
-        var res = Core.findAvailableSlots(store.storeId, dateStr, dateStr, 1, 90, {});
-        var data = (res && res.data && res.data.length) ? res.data : [];
-        var dayData = data[0];
-        if (dayData) {
-          if (dayData.timesWithCount && dayData.timesWithCount.length) {
-            slotsText = dayData.timesWithCount.map(function (x) {
-              return (x.time || "") + "×" + (x.count != null ? x.count : 1);
-            }).join("、");
-          } else if (dayData.times && dayData.times.length) {
-            slotsText = Array.isArray(dayData.times) ? dayData.times.join("、") : String(dayData.times);
+        var fullText = cleanData(store.storeId, { startDate: dateStr, endDate: dateStr });
+        if (fullText && typeof fullText === "string") {
+          var firstLine = fullText.split("\n")[0];
+          if (firstLine && firstLine.indexOf("）：") >= 0) {
+            slotsText = firstLine.split("）：")[1].trim();
+          } else if (firstLine && firstLine.trim()) {
+            slotsText = firstLine.trim();
           }
         }
       } catch (err) {
-        console.warn("getTomorrowReservationList 空位查詢 " + (store.storeName || store.storeId) + ":", err);
+        var errMsg = (err && err.message) ? err.message : String(err);
+        console.warn("getTomorrowReservationList 空位查詢拋錯 [" + (store.storeName || store.storeId) + "]: " + errMsg);
       }
-      store.availableSlotsText = slotsText;
+      // 有實際時段才顯示「1.5hr 還有 n 個空位」；無空位或查不到時回傳「—」，LINE 不顯示該行
+      if (slotsText && slotsText !== "—" && slotsText !== "（無）") {
+        var n = slotsText.split("、").filter(function (s) { return s && String(s).trim(); }).length;
+        store.availableSlotsText = n > 0 ? "1.5hr 還有 " + n + " 個空位" : "—";
+      } else {
+        store.availableSlotsText = "—";
+      }
     }
   } else {
     for (var j = 0; j < byStore.length; j++) byStore[j].availableSlotsText = "—";
+  }
+  // 為每位客人產生一次性 token（點擊手機連結用，防止被人改手機號盜用）
+  if (typeof createCustomerCardToken === "function") {
+    for (var si = 0; si < byStore.length; si++) {
+      var items = byStore[si].items || [];
+      for (var ii = 0; ii < items.length; ii++) {
+        var ph = items[ii].phone;
+        if (ph) items[ii].token = createCustomerCardToken(ph) || "";
+      }
+    }
   }
   var out = { dateStr: dateStr, byStore: byStore };
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);

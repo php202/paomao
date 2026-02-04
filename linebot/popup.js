@@ -105,7 +105,7 @@ async function fetchMsgList(botId) {
           <span>${item.time}</span>
           <span style="margin:0 5px; color:#ddd;">|</span>
           <span class="msg-name" title="點擊複製">${item.name}</span>
-          <button class="btn-copy-name">📋</button>
+          <button class="btn-copy-name" title="用此名字篩選訊息">🔍</button>
         </div>
         <div class="msg-content">${item.msg}</div>
         <button class="btn-done" data-row="${item.row}">✔ 完成</button>
@@ -121,9 +121,17 @@ async function fetchMsgList(botId) {
         });
       });
 
+      // 放大鏡：將名字填入搜尋框並觸發過濾
       div.querySelector('.btn-copy-name').addEventListener('click', (e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(item.name);
+        const searchInput = document.getElementById('input-search');
+        if (searchInput) {
+          searchInput.value = item.name;
+          // 觸發 input 事件，沿用既有的過濾邏輯
+          const ev = new Event('input', { bubbles: true });
+          searchInput.dispatchEvent(ev);
+          searchInput.focus();
+        }
       });
 
       div.querySelector('.btn-done').addEventListener('click', async (e) => {
@@ -347,13 +355,27 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 搜尋過濾
-  document.getElementById('input-search').addEventListener('input', (e) => {
-    const keyword = e.target.value.toLowerCase().trim();
-    document.querySelectorAll('.msg-item').forEach(item => {
-      const text = item.getAttribute('data-search');
-      item.style.display = text.includes(keyword) ? '' : 'none';
+  const searchInputEl = document.getElementById('input-search');
+  if (searchInputEl) {
+    searchInputEl.addEventListener('input', (e) => {
+      const keyword = e.target.value.toLowerCase().trim();
+      document.querySelectorAll('.msg-item').forEach(item => {
+        const text = item.getAttribute('data-search');
+        item.style.display = text.includes(keyword) ? '' : 'none';
+      });
     });
-  });
+  }
+
+  // 搜尋欄右側「刪除」按鈕：清空並恢復全部訊息
+  const clearBtn = document.getElementById('btn-clear-search');
+  if (clearBtn && searchInputEl) {
+    clearBtn.addEventListener('click', () => {
+      searchInputEl.value = '';
+      const ev = new Event('input', { bubbles: true });
+      searchInputEl.dispatchEvent(ev);
+      searchInputEl.focus();
+    });
+  }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {

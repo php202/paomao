@@ -22,13 +22,36 @@ function doPost(e) {
     if (data.events) {
       // === 情況 A: LINE Webhook ===
       const events = data.events;
+      const coreConfig = Core.getCoreConfig();
+      const paopaoToken = coreConfig && coreConfig.LINE_TOKEN_PAOPAO ? coreConfig.LINE_TOKEN_PAOPAO : '';
+
       for (const event of events) {
         if (event.type === 'postback') {
-          // 呼叫您原本定義的 handleConfirmPostback (需確保此函式存在)
           handleConfirmPostback(event);
+        } else if (event.type === 'message' && event.message && event.message.type === 'text') {
+          const text = (event.message.text || '').trim();
+          const reportHandler = typeof Core.getReportHandlerFromKeyword === 'function' ? Core.getReportHandlerFromKeyword(text) : null;
+          if (reportHandler && paopaoToken) {
+            const userId = (event.source && event.source.userId) || '';
+            const auth = typeof Core.getManagerManagedStores === 'function' ? Core.getManagerManagedStores(userId) : { isManager: false, managedStores: [] };
+            if (!auth.isManager) {
+              Core.sendLineReply(event.replyToken, '此報告僅限管理者使用。請確認您已於「管理者清單」中設定。', paopaoToken);
+            } else if (!auth.managedStores || auth.managedStores.length === 0) {
+              Core.sendLineReply(event.replyToken, '請於「管理者清單」設定您管理的門市（第 3 欄）。', paopaoToken);
+            } else {
+              try {
+                const managedStoreIds = (auth.managedStores || []).map(function (s) { return String(s).trim(); });
+                const result = Core.getReportTextForKeyword(reportHandler, { managedStoreIds: managedStoreIds });
+                const msg = (result && result.text) ? result.text : '報告無內容或產出失敗，請稍後再試或聯繫管理員。';
+                Core.sendLineReply(event.replyToken, msg, paopaoToken);
+              } catch (err) {
+                Core.sendLineReply(event.replyToken, '產出報告時發生錯誤，請稍後再試或聯繫管理員。', paopaoToken);
+              }
+            }
+          }
         }
       }
-      
+
       // 處理訊息紀錄
       handleLineWebhook(data);
       

@@ -133,3 +133,158 @@ function main() {
 function cleanupTempSheets() {
   Core.cleanupTempSheets('17hX7CjeDj2xdKBIt9TKG6iJF5lB38uXwj2kdhb4oIQE', '銀行匯款格式_')
 }
+
+/**
+ * 若已設 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY，則透過 Core API 取資料與開票；
+ * 否則使用 Core 程式庫。Core API 網址請填「網路應用程式」部署網址（結尾 /exec）。
+ */
+function getCoreApiParams() {
+  const p = PropertiesService.getScriptProperties();
+  const url = (p.getProperty('PAO_CAT_CORE_API_URL') || '').trim();
+  const key = (p.getProperty('PAO_CAT_SECRET_KEY') || '').trim();
+  return { url, key, useApi: url.length > 0 && key.length > 0 };
+}
+
+/**
+ * 透過 Core API 取得 Odoo 發票明細。
+ * 回傳 { data: 陣列 } 成功，{ data: null, error: "訊息" } 失敗（會帶出 Core 回傳的錯誤原因）。
+ */
+function fetchOdooInvoiceFromCoreApi(odooId) {
+  const { url, key, useApi } = getCoreApiParams();
+  if (!useApi) return { data: null, error: '未設定 PAO_CAT_CORE_API_URL 或 PAO_CAT_SECRET_KEY' };
+  const sep = url.indexOf('?') >= 0 ? '&' : '?';
+  const q = sep + 'key=' + encodeURIComponent(key) + '&action=getOdooInvoice&id=' + encodeURIComponent(String(odooId));
+  let res, json;
+  try {
+    res = UrlFetchApp.fetch(url + q, { muteHttpExceptions: true, followRedirects: true });
+    const text = res.getContentText();
+    json = JSON.parse(text);
+  } catch (e) {
+    return { data: null, error: 'Core API 連線或回應格式異常：' + (e.message || String(e)) };
+  }
+  if (json && json.status === 'ok' && Array.isArray(json.data)) {
+    return { data: json.data };
+  }
+  const msg = (json && json.message) ? json.message : ('HTTP ' + res.getResponseCode());
+  return { data: null, error: msg };
+}
+
+/** 透過 Core API 開立發票（需已設 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY） */
+function issueInvoiceViaCoreApi(storeInfo, odooNumber, buyType, items) {
+  const { url, key, useApi } = getCoreApiParams();
+  if (!useApi) return null;
+  const payload = JSON.stringify({
+    key: key,
+    action: 'issueInvoice',
+    storeInfo: storeInfo,
+    odooNumber: String(odooNumber || ''),
+    buyType: String(buyType || '請款'),
+    items: items
+  });
+  const res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: payload, muteHttpExceptions: true });
+  return JSON.parse(res.getContentText());
+}
+
+/**
+ * 開發票：由選單「🚀 開發票」呼叫。
+ * 掃描「2026/ACH紀錄」：登陸ach＝true、有 Odoo 單號、發票號碼為空 的列。
+ * 若已設 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY 則改由 Core API 拿取明細與開票，否則使用 Core 程式庫。
+ */
+function issueInvoice() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('2026/ACH紀錄');
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('找不到工作表「2026/ACH紀錄」。');
+    return;
+  }
+  const data = sheet.getDataRange().getValues();
+  const { useApi } = getCoreApiParams();
+
+  let bankInfoMap;
+  try {
+    bankInfoMap = Core.getBankInfoMap();
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('設定錯誤：' + e.toString());
+    return;
+  }
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const storeCode = row[3];       // D 欄: 店家代碼
+    const achBank = row[10];        // K 欄: 登陸ach
+    const invoiceNumber = row[13];  // N 欄: 發票號碼
+    const odooNumber = row[14];    // O 欄: Odoo 單號
+    const buytype = String(row[4] || '').trim() || '請款'; // E 欄: 費用種類
+
+    if (achBank !== true || !odooNumber || (invoiceNumber && String(invoiceNumber).trim() !== '')) {
+      continue;
+    }
+
+    const storeInfo = bankInfoMap.get(String(storeCode).trim());
+    if (!storeInfo || !storeInfo.pinCode) {
+      console.error(`店家代碼 ${storeCode} 缺少統編，跳過。`);
+      continue;
+    }
+
+    let odooLines;
+    if (useApi) {
+      const apiResult = fetchOdooInvoiceFromCoreApi(odooNumber);
+      odooLines = apiResult.data;
+      if (odooLines == null) {
+        const errMsg = apiResult.error || '未知錯誤';
+        console.error(`Core API 取得 Odoo 明細失敗 (${odooNumber}): ${errMsg}`);
+        sheet.getRange(i + 1, 18).setValue('Odoo 明細失敗：' + errMsg);
+        continue;
+      }
+    } else {
+      try {
+        odooLines = Core.getOdooInvoiceJSON(odooNumber);
+      } catch (e) {
+        console.error(`Odoo 明細取得失敗 (${odooNumber}): ${e.message}`);
+        continue;
+      }
+    }
+
+    const items = (odooLines || [])
+      .filter(line => line.price_subtotal > 0)
+      .map(line => {
+        const qty = line.quantity || 1;
+        return {
+          name: line.name || '',
+          money: line.price_subtotal / qty,
+          number: qty
+        };
+      });
+
+    if (items.length === 0) {
+      console.error('無有效品項，跳過開票。');
+      continue;
+    }
+
+    sheet.getRange(i + 1, 14).setValue('B2B開票中...');
+    SpreadsheetApp.flush();
+
+    try {
+      let result;
+      if (useApi) {
+        result = issueInvoiceViaCoreApi(storeInfo, odooNumber, buytype, items);
+      }
+      if (!useApi || result == null) {
+        result = Core.issueInvoice(storeInfo, odooNumber, buytype, items);
+      }
+      if (result && result.success === 'true') {
+        sheet.getRange(i + 1, 14).setValue(result.code || '');
+        sheet.getRange(i + 1, 18).setValue(''); // 成功時清空 R 欄錯誤訊息
+        console.log(`成功開立發票：${result.code}`);
+      } else {
+        sheet.getRange(i + 1, 14).setValue('');
+        const failMsg = (result && result.msg != null && String(result.msg).trim() !== '') ? String(result.msg) : '開立發票失敗';
+        sheet.getRange(i + 1, 18).setValue('失敗：' + failMsg);
+      }
+    } catch (e) {
+      sheet.getRange(i + 1, 14).setValue('');
+      sheet.getRange(i + 1, 18).setValue('中繼站連線異常');
+      console.error('issueInvoice 異常：' + e.message);
+    }
+  }
+}

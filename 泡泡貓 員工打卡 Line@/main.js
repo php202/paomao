@@ -5,6 +5,8 @@ const LINE_STAFF_SS_ID = coreConfig.LINE_STAFF_SS_ID;
 const LINE_HQ_SS_ID = coreConfig.LINE_HQ_SS_ID;
 const CHECK_IN_LINK = 'https://www.paopaomao.tw/checkin'
 const FOLDER_ID = "1jrJSmi_alPOwK7cCkJUOLRAPtBl9acC3"; // 請確認 ID 正確
+/** 明日預約清單關鍵字是否開放：true = 「明天預約清單」「明日預約清單」可查清單；僅「明日預約」四字仍屏蔽 */
+const TOMORROW_LIST_ENABLED = true;
 
 /** 明日預約 API 網址：優先讀指令碼屬性 TOMORROW_BRIEFING_WEB_APP_URL，沒有再讀 Core Config */
 function getTomorrowBriefingWebAppUrl() {
@@ -13,6 +15,15 @@ function getTomorrowBriefingWebAppUrl() {
     if (url && String(url).trim() !== "") return String(url).trim();
   } catch (e) {}
   return (coreConfig.TOMORROW_BRIEFING_WEB_APP_URL && String(coreConfig.TOMORROW_BRIEFING_WEB_APP_URL).trim() !== "") ? String(coreConfig.TOMORROW_BRIEFING_WEB_APP_URL).trim() : "";
+}
+
+/** 客人狀態頁（Odoo customer-info）：明日預約清單點擊手機時導向此頁 ?token=xxx。可設指令碼屬性 CUSTOMER_INFO_PAGE_URL 覆寫。 */
+function getCustomerInfoPageUrl() {
+  try {
+    var url = PropertiesService.getScriptProperties().getProperty("CUSTOMER_INFO_PAGE_URL");
+    if (url && String(url).trim() !== "") return String(url).trim();
+  } catch (e) {}
+  return "https://www.paopaomao.tw/customer-info";
 }
 
 // 2. 建立一個簡單的縮寫函式，不用每次都打 Core.sendLineReply(..., ..., LINE_TOKEN)
@@ -59,22 +70,22 @@ function extractPhoneFromCustomerKeyword(text) {
 }
 
 /**
- * 明日預約清單：點手機可開啟該客人的 AI 分析 HTML 頁（customerCard）。
+ * 明日預約清單：點手機可開啟 Odoo 客人狀態頁（customer-info?token=xxx）。
  * 將 API 回傳的 JSON 轉成「單則」Flex 訊息，減少頁面拉動。
- * @param {Object} listData - { dateStr, byStore: [ { storeId, storeName, items: [ { name, phone, rsvtim } ] } ] }
- * @param {string} customerCardBaseUrl - 各店訊息一覽表 Web App 網址（用於 action=customerCard&phone=）
+ * @param {Object} listData - { dateStr, byStore: [ { storeId, storeName, items: [ { name, phone, rsvtim, token } ] } ] }
+ * @param {string} customerCardBaseUrl - 保留參數（未使用），原為各店訊息一覽表 Web App 網址
+ * @param {string} [recipientUserId] - LINE 收件者 userId，帶入 customer-info 連結以便追蹤是誰傳送建議
  * @returns {Object|null} 單一 Flex 訊息物件，無資料時回傳 null
  */
-function buildTomorrowListMessages(listData, customerCardBaseUrl) {
+function buildTomorrowListMessages(listData, customerCardBaseUrl, recipientUserId) {
   if (!listData || !listData.byStore || !listData.byStore.length) return null;
-  var baseUrl = (customerCardBaseUrl && String(customerCardBaseUrl).trim()) ? String(customerCardBaseUrl).trim() : "";
-  var sep = baseUrl.indexOf("?") >= 0 ? "&" : "?";
-  function customerCardUri(phone) {
-    if (!phone || !baseUrl) return baseUrl || "";
-    var p = String(phone).replace(/\D/g, "");
-    if (p.length === 9 && p.charAt(0) === "9") p = "0" + p;
-    if (p.length < 10) return baseUrl;
-    return baseUrl + sep + "action=customerCard&phone=" + encodeURIComponent(p.length > 10 ? p.slice(-10) : p);
+  var customerInfoBase = getCustomerInfoPageUrl();
+  function customerInfoUri(item) {
+    var token = (item && item.token) ? String(item.token).trim() : "";
+    if (!token) return "";
+    var q = (customerInfoBase.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(token);
+    if (recipientUserId) q += "&userId=" + encodeURIComponent(String(recipientUserId));
+    return customerInfoBase + q;
   }
   function normalizePhone(phone) {
     if (!phone) return "—";
@@ -96,59 +107,95 @@ function buildTomorrowListMessages(listData, customerCardBaseUrl) {
   var dateStr = listData.dateStr || "";
   var bodyContents = [];
   var storeLimit = 8;
-  var guestLimit = 10; // 每店最多顯示客數（LINE box 單一 box 最多 10 元件）
+  var guestLimit = 10; // 每店單一 box 最多 10 個元件，超過則拆成多個 guestListBox
   for (var s = 0; s < listData.byStore.length && bodyContents.length < storeLimit; s++) {
     var block = listData.byStore[s];
     var storeName = block.storeName || ("店" + (block.storeId || ""));
     var items = block.items || [];
-    var slotsText = (block.availableSlotsText != null && String(block.availableSlotsText).trim() !== "") ? String(block.availableSlotsText).trim() : "—";
+    var slotsText = (block.availableSlotsText != null && String(block.availableSlotsText).trim() !== "") ? String(block.availableSlotsText).trim() : "";
+    // 只有成功取得空位時才顯示「明日可預約空位」；抓不到（—、0 個空位、空字串）就整行不顯示
+    var hasValidSlots = slotsText && slotsText !== "—" && slotsText !== "0 個空位" && slotsText.indexOf("還有") >= 0;
+    var headerContents = [
+      { type: "text", text: "【" + storeName + "】", weight: "bold", size: "sm" },
+      { type: "text", text: "明天預約人數：" + (items.length), size: "xs" }
+    ];
+    if (hasValidSlots) {
+      headerContents.splice(1, 0, { type: "text", text: "明日可預約空位：" + slotsText, size: "xs", color: "#666666", wrap: true });
+    }
     var headerBox = {
       type: "box",
       layout: "vertical",
-      spacing: "xs",
-      contents: [
-        { type: "text", text: "【" + storeName + "】", weight: "bold", size: "md" },
-        { type: "text", text: "明日可預約空位：" + slotsText, size: "sm", color: "#666666", wrap: true },
-        { type: "text", text: "明天預約人數：" + (items.length), size: "sm" }
-      ]
+      spacing: "none",
+      contents: headerContents
     };
-    var guestListContents = [];
-    for (var i = 0; i < items.length && guestListContents.length < guestLimit; i++) {
-      var o = items[i];
-      var name = (o.name || "—").toString().trim();
-      var phone = (o.phone || "").toString().trim();
-      var displayPhone = normalizePhone(phone);
-      var uri = customerCardUri(phone);
-      if (uri) {
-        guestListContents.push({
-          type: "box",
-          layout: "horizontal",
-          margin: "sm",
-          contents: [
-            { type: "text", text: name, size: "sm", flex: 1, wrap: true },
-            { type: "button", action: { type: "uri", label: displayPhone, uri: uri }, style: "link" }
-          ]
-        });
-      } else {
-        guestListContents.push({ type: "text", text: name + " " + displayPhone, size: "sm", wrap: true });
+    var storeBlockContents = [headerBox];
+    for (var chunkStart = 0; chunkStart < items.length; chunkStart += guestLimit) {
+      var chunk = items.slice(chunkStart, chunkStart + guestLimit);
+      var guestListContents = [];
+      for (var i = 0; i < chunk.length; i++) {
+        var o = chunk[i];
+        var timeText = (o.timeText && String(o.timeText).trim()) ? String(o.timeText).trim().slice(0, 5) : "";
+        if (!timeText && (o.rsvtim != null && o.rsvtim !== "")) {
+          try {
+            var s = String(o.rsvtim).trim();
+            var tPart = s.split(/[T\s]/)[1] || "";
+            if (tPart) timeText = tPart.slice(0, 5);
+            if (!timeText && /\d{1,2}:\d{2}/.test(s)) {
+              var match = s.match(/(\d{1,2}):(\d{2})/);
+              if (match) timeText = match[1].padStart(2, "0") + ":" + match[2];
+            }
+          } catch (e) {
+            timeText = "";
+          }
+        }
+        if (!timeText && (o.start_time != null && o.start_time !== "")) {
+          var st = String(o.start_time).trim();
+          var stPart = st.split(/[T\s]/)[1] || "";
+          if (stPart) timeText = stPart.slice(0, 5);
+        }
+        var name = (o.name || "—").toString().trim();
+        var phone = (o.phone || "").toString().trim();
+        var displayPhone = normalizePhone(phone);
+        var uri = customerInfoUri(o);
+        // 名字旁邊顯示預約時間：王小明（14:00）
+        var mainText = timeText ? (name + "（" + timeText + "）") : name;
+        if (uri) {
+          guestListContents.push({
+            type: "box",
+            layout: "horizontal",
+            margin: "none",
+            contents: [
+              { type: "text", text: mainText, size: "xxs", wrap: true },
+              { type: "box", layout: "vertical", action: { type: "uri", uri: uri }, contents: [{ type: "text", text: displayPhone, size: "xxs", color: "#0066cc" }] }
+            ]
+          });
+        } else {
+          guestListContents.push({ type: "text", text: mainText + " " + displayPhone, size: "xxs", wrap: true, margin: "none" });
+        }
       }
+      storeBlockContents.push({
+        type: "box",
+        layout: "vertical",
+        margin: "none",
+        spacing: "none",
+        contents: guestListContents.length ? guestListContents : [{ type: "text", text: "（無預約）", size: "xxs", color: "#999999" }]
+      });
     }
-    if (items.length > guestLimit) {
-      guestListContents.push({ type: "text", text: "…共 " + items.length + " 人", size: "xs", color: "#999999" });
+    if (items.length === 0) {
+      storeBlockContents.push({
+        type: "box",
+        layout: "vertical",
+        margin: "none",
+        spacing: "none",
+        contents: [{ type: "text", text: "（無預約）", size: "xxs", color: "#999999" }]
+      });
     }
-    var guestListBox = {
-      type: "box",
-      layout: "vertical",
-      margin: "sm",
-      spacing: "xs",
-      contents: guestListContents.length ? guestListContents : [{ type: "text", text: "（無預約）", size: "sm", color: "#999999" }]
-    };
     bodyContents.push({
       type: "box",
       layout: "vertical",
-      margin: "md",
-      spacing: "xs",
-      contents: [headerBox, guestListBox]
+      margin: "sm",
+      spacing: "none",
+      contents: storeBlockContents
     });
   }
   if (totalStores > storeLimit) {
@@ -160,13 +207,15 @@ function buildTomorrowListMessages(listData, customerCardBaseUrl) {
       type: "box",
       layout: "vertical",
       contents: [
-        { type: "text", text: "📅 明日預約 " + dateStr + " 共 " + totalStores + " 店、" + totalGuests + " 人", weight: "bold", size: "md", wrap: true }
+        { type: "text", text: "📅 明日預約 " + dateStr + " 共 " + totalStores + " 店、" + totalGuests + " 人", weight: "bold", size: "sm", wrap: true }
       ]
     },
     body: {
       type: "box",
       layout: "vertical",
-      contents: bodyContents.length ? bodyContents : [{ type: "text", text: "無預約資料", size: "sm", color: "#999999" }]
+      margin: "none",
+      spacing: "xs",
+      contents: bodyContents.length ? bodyContents : [{ type: "text", text: "無預約資料", size: "xs", color: "#999999" }]
     }
   };
   return {
@@ -178,7 +227,7 @@ function buildTomorrowListMessages(listData, customerCardBaseUrl) {
 
 /**
  * 「我要了解客人」：透過 Core API（action=getCustomerAIResult）取得該手機的 AI分析結果並回覆。
- * 需設定指令碼屬性：PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY。
+ * 需設定指令碼屬性：PAO_CAT_CORE_API_URL（PaoMao_Core「網路應用程式」部署網址，結尾 /exec）、PAO_CAT_SECRET_KEY。
  */
 function replyCustomerAIResult(replyToken, text) {
   var phone = extractPhoneFromCustomerKeyword(text);
@@ -359,21 +408,44 @@ function routeMessageEvent(event) {
       if (text.includes("補打卡"))      return makeUpTime(replyToken, userId, text);
       if (text.includes("Line問題集"))  return sendStoreLineQuestionRequest(replyToken, userId);
 
-      // 3.4 明天預約清單：列出負責店家的明日預約，姓名＋手機（點擊手機可自動送出「我要了解客人09xxx」）
+      // 僅「明日預約」四字屏蔽；「明日預約清單」「明天預約清單」可查清單
+      if (text.trim() === "明日預約") {
+        reply(replyToken, "此功能暫時關閉，敬請見諒。");
+        return;
+      }
+
+      // 3.4 明天預約清單：列出店家的明日預約（含時間、姓名、手機，點擊手機導向 Odoo 客人狀態頁）
       if (text.trim() === "明天預約清單" || text.trim() === "明日預約清單") {
-        if (!auth.isAuthorized || !auth.identity || auth.identity.indexOf("manager") === -1) {
-          reply(replyToken, "此功能僅限管理者使用。請確認已於「管理者清單」設定管理門市。");
+        if (!TOMORROW_LIST_ENABLED) {
+          reply(replyToken, "此功能暫時關閉，敬請見諒。");
           return;
         }
+        // 新邏輯：管理者可以看自己管理的所有門市；一般員工可以看自己所屬門市
         var managedStoreIds = [];
-        (auth.managedStores || []).forEach(function (s) {
-          String(s).split(/[,、，]/).forEach(function (id) {
-            var t = id.trim();
-            if (t) managedStoreIds.push(t);
+        if (auth.isAuthorized && auth.identity && auth.identity.indexOf("manager") !== -1) {
+          // 管理者：沿用原本 managedStores 設定
+          (auth.managedStores || []).forEach(function (s) {
+            String(s).split(/[,、，]/).forEach(function (id) {
+              var t = id.trim();
+              if (t) managedStoreIds.push(t);
+            });
           });
-        });
+        } else {
+          // 一般員工：若有設定所屬店別（例如 auth.storeIds 或 auth.stores），則僅看自己店家
+          if (auth && auth.storeIds && auth.storeIds.length) {
+            (auth.storeIds || []).forEach(function (id) {
+              var t = String(id || "").trim();
+              if (t) managedStoreIds.push(t);
+            });
+          } else if (auth && auth.stores && auth.stores.length) {
+            (auth.stores || []).forEach(function (id) {
+              var t = String(id || "").trim();
+              if (t) managedStoreIds.push(t);
+            });
+          }
+        }
         if (managedStoreIds.length === 0) {
-          reply(replyToken, "請於「管理者清單」設定您管理的門市（第 3 欄）。");
+          reply(replyToken, "無法判斷您所屬的門市，請請管理者在「管理者清單」或員工設定中補上店家代碼。");
           return;
         }
         var tomorrowUrl = getTomorrowBriefingWebAppUrl();
@@ -389,7 +461,11 @@ function routeMessageEvent(event) {
             return;
           }
           var listData = JSON.parse(listResp.getContentText());
-          var flexMsg = buildTomorrowListMessages(listData, tomorrowUrl);
+          if (listData.closed === true) {
+            reply(replyToken, listData.message || "明日預約報告當日已關閉，當日不提供預約清單。");
+            return;
+          }
+          var flexMsg = buildTomorrowListMessages(listData, tomorrowUrl, userId);
           if (!flexMsg) {
             reply(replyToken, "📅 明日（" + (listData.dateStr || "") + "）您負責的店家目前無預約。");
             return;
@@ -399,6 +475,100 @@ function routeMessageEvent(event) {
         } catch (e) {
           console.warn("[明天預約清單] 失敗:", e);
           reply(replyToken, "取得明日預約清單時發生錯誤，請稍後再試或聯繫管理員。");
+          return;
+        }
+      }
+
+      // 3.5a 上月小費：管理者看負責店家、員工看備註含自己員工編號，回傳試算表連結
+      if (text.trim() === "上月小費" || text.indexOf("上月小費") >= 0) {
+        try {
+          var isManager = auth.identity && auth.identity.indexOf("manager") !== -1;
+          var isEmployee = auth.identity && auth.identity.indexOf("employee") !== -1;
+          var managedStoreIds = [];
+          if (isManager && (auth.managedStores || []).length > 0) {
+            (auth.managedStores || []).forEach(function (s) {
+              String(s).split(/[,、，]/).forEach(function (id) {
+                var t = id.trim();
+                if (t) managedStoreIds.push(t);
+              });
+            });
+          }
+          var employeeCode = (auth.employeeCode != null && String(auth.employeeCode).trim() !== "") ? String(auth.employeeCode).trim() : "";
+          if (!isManager && !isEmployee) {
+            reply(replyToken, "此功能僅限已開通的管理者或員工使用。請確認您已於「管理者清單」或「員工清單」中設定。");
+            return;
+          }
+          if (isManager && managedStoreIds.length === 0 && !employeeCode) {
+            reply(replyToken, "管理者請在「管理者清單」填寫負責店家；或您可改以員工身份查詢（需在「員工清單」有員工編號）。");
+            return;
+          }
+          if (!isManager && isEmployee && !employeeCode) {
+            reply(replyToken, "員工清單中未找到您的員工編號（L 欄），無法篩選您的小費。請請主管補上。");
+            return;
+          }
+          var url = "";
+          var key = "";
+          try {
+            url = PropertiesService.getScriptProperties().getProperty("PAO_CAT_CORE_API_URL") || "";
+            key = PropertiesService.getScriptProperties().getProperty("PAO_CAT_SECRET_KEY") || "";
+          } catch (eConf) {}
+          if (!url || !key) {
+            reply(replyToken, "上月小費報告失敗：未設定 Core API（請在本專案指令碼屬性設定 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY）。");
+            return;
+          }
+          url = url.trim();
+          key = key.trim();
+          var sep = url.indexOf("?") >= 0 ? "&" : "?";
+          var fullUrl = url + sep + "key=" + encodeURIComponent(key) + "&action=lastMonthTipsReport&userId=" + encodeURIComponent(userId);
+          if (managedStoreIds.length > 0) {
+            fullUrl += "&managedStoreIds=" + encodeURIComponent(managedStoreIds.join(","));
+          } else if (employeeCode) {
+            fullUrl += "&employeeCode=" + encodeURIComponent(employeeCode);
+          }
+          try {
+            var res = UrlFetchApp.fetch(fullUrl, { muteHttpExceptions: true });
+            var code = res.getResponseCode();
+            var body = res.getContentText();
+            if (code !== 200) {
+              if (code === 404) {
+                reply(replyToken, "上月小費報告失敗（404）。請檢查：\n1) PAO_CAT_CORE_API_URL 是否為 PaoMao_Core Web App 的 /exec 網址。\n2) 是否有在 PaoMao_Core 專案部署含 TipsReport.js 的新版本。");
+              } else {
+                reply(replyToken, "上月小費報告失敗（Core API HTTP " + code + "）。請稍後再試或聯繫管理員。");
+              }
+              return;
+            }
+            var data;
+            try {
+              data = JSON.parse(body);
+            } catch (eJson) {
+              console.warn("[上月小費] Core API 回傳非 JSON:", body ? body.slice(0, 200) : "");
+              reply(replyToken, "上月小費報告失敗：Core API 回傳格式異常，請確認 PaoMao_Core 已含 TipsReport.js 並重新部署。");
+              return;
+            }
+            if (data && data.ok && data.url) {
+              var tipsMsg = (managedStoreIds.length > 0 ? "✅ 上月小費（您負責的店家）" : "✅ 上月小費（我的小費）") + "\n\n開啟報表：\n" + data.url;
+              if (data.cached) {
+                tipsMsg = "✅ 上月小費（同月份已有產出）\n\n開啟報表：\n" + data.url;
+              }
+              reply(replyToken, tipsMsg);
+              return;
+            }
+            var errMsgApi = (data && data.message) ? data.message : "未知錯誤";
+            reply(replyToken, "上月小費報告失敗：" + errMsgApi);
+            return;
+          } catch (eApi) {
+            console.warn("[上月小費] Core API 呼叫失敗:", eApi && eApi.message ? eApi.message : eApi);
+            reply(replyToken, "上月小費報告發生錯誤：" + (eApi && eApi.message ? eApi.message : "請稍後再試或聯繫管理員。"));
+            return;
+          }
+        } catch (err) {
+          var errMsg = (err && err.message) ? err.message : String(err);
+          console.warn("[上月小費] 例外:", errMsg);
+          try {
+            reply(replyToken, "上月小費報告發生錯誤：" + errMsg);
+          } catch (_) {
+            reply(replyToken, "上月小費報告發生錯誤，請稍後再試或聯繫管理員。");
+          }
           return;
         }
       }
@@ -413,7 +583,13 @@ function routeMessageEvent(event) {
           return;
         }
         try {
-          const managedStoreIds = (auth.managedStores && auth.managedStores.length) ? auth.managedStores.map(function (id) { return String(id).trim(); }) : [];
+          var managedStoreIds = [];
+          (auth.managedStores || []).forEach(function (s) {
+            String(s).split(/[,、，]/).forEach(function (id) {
+              var t = id.trim();
+              if (t) managedStoreIds.push(t);
+            });
+          });
           var reportText = null;
           var tomorrowBriefingUrl = getTomorrowBriefingWebAppUrl();
           if (reportHandler === "tomorrow" && tomorrowBriefingUrl) {
@@ -447,7 +623,7 @@ function routeMessageEvent(event) {
         return reply(replyToken, `請點擊:\n${workflowLink}`);
       }
 
-      reply(replyToken, "找不到對應的指令。可試試：查詢打卡記錄、本月出勤、昨日報告、員工樣態。");
+      // 無對應指令時不回覆，已讀不回
     }
 
   } catch (error) {

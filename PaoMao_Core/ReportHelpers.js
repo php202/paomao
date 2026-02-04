@@ -223,10 +223,15 @@ function normalizeReservationRow(r) {
   var phone = (r.rsphon != null && r.rsphon !== "") ? String(r.rsphon).trim() : (r.memb && r.memb.phone_) ? String(r.memb.phone_).trim() : "";
   var name = (r.rsname != null && r.rsname !== "") ? String(r.rsname).trim() : (r.memb && r.memb.memnam) ? String(r.memb.memnam).trim() : "";
   var rsvtim = r.rsvtim ? String(r.rsvtim).replace("T", " ").slice(0, 16) : "";
+  var timeText = "";
+  if (rsvtim) {
+    var tPart = rsvtim.split(/[T\s]/)[1] || "";
+    timeText = tPart.slice(0, 5); // HH:mm
+  }
   var staffName = (r.usrs && r.usrs.usrnam) ? String(r.usrs.usrnam) : "";
   var services = (r.services != null) ? String(r.services) : "";
   var remark = (r.remark != null) ? String(r.remark) : "";
-  return { phone: phone, name: name, rsvtim: rsvtim, staffName: staffName, services: services, remark: remark };
+  return { phone: phone, name: name, rsvtim: rsvtim, timeText: timeText, staffName: staffName, services: services, remark: remark };
 }
 
 function formatStoreReportForAI(storeName, items) {
@@ -349,7 +354,8 @@ var REPORT_KEYWORD_RULES = [
   { keywords: ["昨日報告", "昨日消費", "昨日"], handler: "yesterday", label: "昨日消費報告" },
   { keywords: ["明日預約", "明日預約報告", "明日"], handler: "tomorrow", label: "明日預約報告" },
   { keywords: ["本月報告", "本月消費", "月報"], handler: "monthly", label: "本月消費報告" },
-  { keywords: ["員工樣態", "員工月報", "員工每月"], handler: "employee", label: "員工每月樣態" }
+  { keywords: ["員工樣態", "員工月報", "員工每月"], handler: "employee", label: "員工每月樣態" },
+  { keywords: ["上月小費"], handler: "lastMonthTips", label: "上月小費" }
 ];
 
 /**
@@ -409,6 +415,9 @@ function filterByStoreIds(byStore, managedStoreIds) {
 }
 
 function getReportTextForKeyword(handler, options) {
+  // 暫時關閉：報告關鍵字功能（昨日報告、本月報告、上月小費文字版等）不產出內容
+  return { text: "此報告功能暫時關閉，請稍後再試或聯繫管理員。" };
+
   options = options || {};
   var config = (typeof getCoreConfig === "function") ? getCoreConfig() : {};
   var reportSsId = options.reportSsId || config.LINE_STORE_SS_ID || null;
@@ -471,6 +480,44 @@ function getReportTextForKeyword(handler, options) {
       return { text: "📊 員工每月樣態已產出（僅您管理的門市）。\n請至試算表查看：\n" + link + empNote, sheetLink: link };
     }
     return { text: "📊 員工每月樣態已寫入試算表「員工每月樣態」，請開啟試算表查看。" + empNote };
+  } else if (handler === "lastMonthTips") {
+    label = "上月小費";
+    if (typeof buildLastMonthTipsReport !== "function") {
+      text = "上月小費報告功能未就緒（請確認 TipsReport.js 已加入專案）。";
+    } else {
+      var tipsReport = buildLastMonthTipsReport();
+      var tipsRows = tipsReport.rows || [];
+      var ids = managedStoreIds.map(function (id) { return String(id).trim(); });
+      var filtered = tipsRows.filter(function (r) {
+        var sid = (r.門店SayDouId != null && r.門店SayDouId !== "") ? String(r.門店SayDouId).trim() : "";
+        if (!sid) return false;
+        for (var ki = 0; ki < ids.length; ki++) {
+          if (ids[ki] === sid) return true;
+        }
+        return false;
+      });
+      var tipLines = ["📋 上月小費 " + (tipsReport.startDate || "") + " ~ " + (tipsReport.endDate || "") + "（您管理的門市）"];
+      if (filtered.length > 0) {
+        var byStoreName = {};
+        for (var fi = 0; fi < filtered.length; fi++) {
+          var r = filtered[fi];
+          var sn = (r.門店 && String(r.門店).trim()) ? r.門店 : "其他";
+          if (!byStoreName[sn]) byStoreName[sn] = [];
+          byStoreName[sn].push(r);
+        }
+        for (var storeKey in byStoreName) {
+          tipLines.push("\n【" + storeKey + "】");
+          var list = byStoreName[storeKey];
+          for (var li = 0; li < list.length; li++) {
+            var x = list[li];
+            tipLines.push("  " + (x.建立時間 || "") + " " + (x.會員 || "") + " " + (x.手機 || "") + " 小費:" + (x.小費 || "") + " 星數:" + (x.星數 || "") + (x.意見 ? " " + (x.意見.length > 20 ? x.意見.slice(0, 20) + "…" : x.意見) : ""));
+          }
+        }
+      } else {
+        tipLines.push("\n（您管理的門市當月無小費／五星好評紀錄）");
+      }
+      text = tipLines.join("\n");
+    }
   } else {
     return { text: "（未知報告類型）" };
   }

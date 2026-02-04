@@ -39,3 +39,34 @@ function runDebugTest() {
   Logger.log(JSON.stringify(results, null, 2));
   return results;
 }
+
+/**
+ * 測試員工編號：讀取員工清單，列出 D 欄 UserId 與 L 欄 員工編號 的對應。
+ * 執行方式：clasp run testEmployeeCode 或在編輯器選 testEmployeeCode 執行
+ */
+function testEmployeeCode() {
+  const ssId = typeof LINE_STAFF_SS_ID !== 'undefined' ? LINE_STAFF_SS_ID : (typeof Core !== 'undefined' && typeof Core.getCoreConfig === 'function' ? (Core.getCoreConfig() || {}).LINE_STAFF_SS_ID : '');
+  if (!ssId) {
+    Logger.log('錯誤：找不到 LINE_STAFF_SS_ID（請確認 main 或 Core 已載入）');
+    return;
+  }
+  const ss = SpreadsheetApp.openById(ssId);
+  const emSheet = ss.getSheetByName('員工清單');
+  if (!emSheet) {
+    Logger.log('錯誤：找不到「員工清單」工作表');
+    return;
+  }
+  const data = emSheet.getDataRange().getValues();
+  const header = (data[0] || []).map(function (h) { return h != null ? String(h) : ''; });
+  Logger.log('員工清單欄位（前 12 欄）: ' + header.slice(0, 12).join(' | '));
+  const out = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const userId = row[3] != null ? String(row[3]).trim() : '';
+    const employeeCode = row[11] != null ? String(row[11]).trim() : '';
+    out.push({ row: i + 1, userId: userId, employeeCode: employeeCode });
+  }
+  Logger.log('員工編號對應（L 欄 = index 11）:');
+  Logger.log(JSON.stringify(out, null, 2));
+  return out;
+}

@@ -13,8 +13,9 @@ function isUserAuthorized(userId) {
   let result = {
     isAuthorized: false,
     identity: [],      // ['employee', 'manager']
-    managedStores: [], // 管理的店家 ID (來自管理者清單)
+    managedStores: [],  // 管理的店家 ID (來自管理者清單)
     workStores: [],    // 工作的店家 ID (來自員工清單)
+    employeeCode: '',  // 員工編號 (來自員工清單 L 欄 index 11，供上月小費依備註篩選)
     idpercent: 0       // 業績趴數
   };
 
@@ -40,14 +41,12 @@ function isUserAuthorized(userId) {
       if (String(row[3]).trim() === userId) {
         result.isAuthorized = true;
         result.identity.push('employee');
-        
-        // 邏輯：有填第 3 欄 (Index 2: 檢查是否在職/有分配店家) 才把 第 2 欄 (Index 1: 店家ID) 加入
-        // 這裡依照您的邏輯：確認 row[2] 有值，才 push row[1]
+        if (row[11] != null && String(row[11]).trim() !== '') {
+          result.employeeCode = String(row[11]).trim();
+        }
         if (row[2] && row[2] !== "") {
           result.workStores.push(row[1]);
         }
-        
-        // 業績趴數：第 6 欄 (Index 5)
         if (row[5] && row[5] !== "") {
           result.idpercent = row[5];
         }

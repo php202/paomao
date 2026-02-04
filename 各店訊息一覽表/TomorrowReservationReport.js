@@ -23,14 +23,15 @@ var TOMORROW_REPORT_CONFIG = {
  * 取得指定日期、單一店家的預約與排休（使用 Core）
  * @param {string} storeId - SayDou 店家 ID (storid)
  * @param {string} dateStr - yyyy-MM-dd
+ * @param {string} [token] - 選填；Web App 呼叫時傳入 CoreApi.getBearerToken() 以確保同一 token
  * @returns {{ reservations: Array, dutyoffs: Array }}
  */
-function fetchStoreReservationsForDate(storeId, dateStr) {
+function fetchStoreReservationsForDate(storeId, dateStr, token) {
   if (typeof Core === "undefined" || typeof Core.fetchReservationsAndOffs !== "function") {
     return { reservations: [], dutyoffs: [] };
   }
   try {
-    return Core.fetchReservationsAndOffs(storeId, dateStr, dateStr);
+    return Core.fetchReservationsAndOffs(storeId, dateStr, dateStr, token);
   } catch (e) {
     console.warn("fetchStoreReservationsForDate " + storeId + " " + dateStr + ":", e);
     return { reservations: [], dutyoffs: [] };
@@ -46,20 +47,34 @@ function normalizeReservationRow(r) {
   if (!r) return null;
   var phone = (r.rsphon != null && r.rsphon !== "") ? String(r.rsphon).trim() : (r.memb && r.memb.phone_) ? String(r.memb.phone_).trim() : "";
   var name = (r.rsname != null && r.rsname !== "") ? String(r.rsname).trim() : (r.memb && r.memb.memnam) ? String(r.memb.memnam).trim() : "";
-  var rsvtim = r.rsvtim ? String(r.rsvtim).replace("T", " ").slice(0, 16) : "";
+  // 預約時間：API 可能回傳 rsvtim、start_time、startTime、start 等
+  var rsvtimRaw = r.rsvtim || r.start_time || r.startTime || r.start || "";
+  var rsvtim = rsvtimRaw ? String(rsvtimRaw).replace("T", " ").trim().slice(0, 19) : "";
+  var timeText = "";
+  if (rsvtim) {
+    var tPart = rsvtim.split(/[T\s]/)[1] || "";
+    timeText = tPart.slice(0, 5); // HH:mm
+  }
+  if (!timeText && rsvtimRaw) {
+    var m = String(rsvtimRaw).match(/(\d{1,2}):(\d{2})/);
+    if (m) timeText = m[1].padStart(2, "0") + ":" + m[2];
+  }
   var staffName = (r.usrs && r.usrs.usrnam) ? String(r.usrs.usrnam) : "";
   var services = (r.services != null) ? String(r.services) : "";
   var remark = (r.remark != null) ? String(r.remark) : "";
-  return { phone: phone, name: name, rsvtim: rsvtim, staffName: staffName, services: services, remark: remark };
+  return { phone: phone, name: name, rsvtim: rsvtim, timeText: timeText, staffName: staffName, services: services, remark: remark };
 }
 
 /**
  * 依店彙整：取得某日所有店家的預約，並抽出客人手機／姓名等，依時間排序
  * 依賴 Core.getStoresInfo、Core.fetchReservationsAndOffs（PaoMao_Core 程式庫）。
  * @param {string} dateStr - yyyy-MM-dd
+ * @param {{ token?: string }} [options] - 選填；token 為 Web App 取得的 Bearer，傳入時用於 fetchReservationsAndOffs
  * @returns {Array<{ storeId: string, storeName: string, items: Array<Object> }>}
  */
-function getTomorrowReservationsByStore(dateStr) {
+function getTomorrowReservationsByStore(dateStr, options) {
+  options = options || {};
+  var token = (options.token != null && options.token !== "") ? options.token : undefined;
   try {
     if (typeof Core === "undefined") {
       console.warn("getTomorrowReservationsByStore: Core 未定義，請確認已連結 PaoMao_Core 程式庫（userSymbol: Core）");
@@ -77,7 +92,7 @@ function getTomorrowReservationsByStore(dateStr) {
     var out = [];
     for (var i = 0; i < stores.length; i++) {
       var store = stores[i];
-      var res = fetchStoreReservationsForDate(store.id, dateStr);
+      var res = fetchStoreReservationsForDate(store.id, dateStr, token);
       var reservations = (res && res.reservations) ? res.reservations : [];
       var items = [];
       for (var j = 0; j < reservations.length; j++) {
@@ -264,6 +279,9 @@ function writeTomorrowReportToSheet(result) {
   }
 }
 
+/** 明日預約報告關閉日（當日不 Push、不寫入），格式 yyyy-MM-dd，與 AiReception 的 TOMORROW_REPORT_CLOSED_DATES 一致 */
+var TOMORROW_REPORT_CLOSED_DATES = ["2026-02-04"];
+
 /**
  * 產出明日預約報告並 Push 給店家管理者（Logger + LINE），並寫入試算表
  * 執行方式：Apps Script 選 runTomorrowReservationReportAndPush → 執行；可設每日觸發。
@@ -272,6 +290,10 @@ function runTomorrowReservationReportAndPush() {
   var tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   var tomorrowStr = Utilities.formatDate(tomorrow, TOMORROW_REPORT_CONFIG.TZ, "yyyy-MM-dd");
+  if (TOMORROW_REPORT_CLOSED_DATES.indexOf(tomorrowStr) >= 0) {
+    Logger.log("明日預約報告 " + tomorrowStr + " 已關閉，略過 Push 與寫入。");
+    return null;
+  }
   var result = buildTomorrowReservationReport(tomorrowStr);
   Logger.log("=== 明日預約客人報告 " + result.dateStr + " ===");
   for (var i = 0; i < result.byStore.length; i++) {

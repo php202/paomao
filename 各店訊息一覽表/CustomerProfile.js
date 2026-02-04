@@ -41,7 +41,7 @@ const CONFIG = {
   INTEGRATED_PHONE_COL: 1,                   // 手機在第幾欄 (0-based)，對應 B 欄
   INTEGRATED_HEADERS: [
     "時間", "手機", "員工填寫", "客人問卷", "line對話", "消費紀錄", "儲值紀錄",
-    "saydouUserId", "ai prompt", "lineUserId", "AI分析結果"
+    "saydouUserId", "ai prompt", "lineUserId", "AI分析結果", "ai調整建議"
   ]
 };
 
@@ -988,7 +988,7 @@ function scanMessageListAndSyncLineUserIdToCustomerState() {
 /**
  * 依手機重新撈取所有來源並 Upsert 一列（不依賴表單事件）
  * @param {string} phone 正規化後手機
- * @param {{ skipAI?: boolean }} [options] 選項；skipAI: true 時不呼叫 AI（整表更新時建議使用以避開逾時）
+ * @param {{ skipAI?: boolean, leaveEmployeeEmpty?: boolean }} [options] 選項；skipAI: true 時不呼叫 AI；leaveEmployeeEmpty: true 時「員工填寫」欄留空
  */
 function refreshCustomerByPhone(phone, options) {
   if (phone == null || typeof phone === "undefined") {
@@ -1006,6 +1006,7 @@ function refreshCustomerByPhone(phone, options) {
     return;
   }
   const skipAI = options && options.skipAI === true;
+  const leaveEmployeeEmpty = options && options.leaveEmployeeEmpty === true;
   const integratedSs = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
   const sheet = getOrCreateIntegratedSheet(integratedSs);
   const rowIndex = findRowIndexByPhone(sheet, normalized, CONFIG.INTEGRATED_PHONE_COL);
@@ -1019,6 +1020,7 @@ function refreshCustomerByPhone(phone, options) {
 
   const timestamp = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy/MM/dd HH:mm:ss");
   const rowData = buildIntegratedRow(normalized, timestamp, null, existingLineUserId);
+  if (leaveEmployeeEmpty && rowData.length > 2) rowData[2] = "";  // 員工填寫欄留空
   upsertCustomerRow(integratedSs, normalized, rowData);
   // 僅在未 skipAI 時跑 AI 並寫入 AI分析結果（整表更新時 skipAI 可大幅縮短時間、避免逾時）
   if (!skipAI) {

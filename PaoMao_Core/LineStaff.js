@@ -53,3 +53,39 @@ function isDuplicatedEvent(eventId) {
   cache.put(eventId, "1", 60); // 存 60 秒
   return false;
 }
+
+/**
+ * 依 LINE userId 取得是否為管理者與所屬店家（讀取員工打卡試算表「管理者清單」）
+ * 供 PAOPAO 等專案處理「上月小費」等報告關鍵字時使用。
+ * @param {string} userId - LINE 使用者 ID
+ * @returns {{ isManager: boolean, managedStores: string[] }}
+ */
+function getManagerManagedStores(userId) {
+  var out = { isManager: false, managedStores: [] };
+  if (!userId || typeof userId !== "string") return out;
+  var ssId = typeof LINE_STAFF_SS_ID !== "undefined" ? LINE_STAFF_SS_ID : "";
+  if (!ssId) return out;
+  try {
+    var ss = SpreadsheetApp.openById(ssId);
+    var sheet = ss.getSheetByName("管理者清單");
+    if (!sheet || sheet.getLastRow() < 2) return out;
+    var data = sheet.getRange(2, 1, sheet.getLastRow(), 3).getValues();
+    var uid = String(userId).trim();
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i];
+      if (String(row[0]).trim() !== uid) continue;
+      out.isManager = true;
+      var colC = row[2] != null ? String(row[2]).trim() : "";
+      if (colC) {
+        colC.split(/[,、，]/).forEach(function (s) {
+          var t = s.trim();
+          if (t) out.managedStores.push(t);
+        });
+      }
+      break;
+    }
+  } catch (e) {
+    console.warn("[Core] getManagerManagedStores:", e);
+  }
+  return out;
+}

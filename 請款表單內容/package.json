@@ -5,6 +5,7 @@
   "scripts": {
     "push": "clasp push --force",
     "deploy": "clasp deploy -i AKfycbz4aNPS6AACT4o0nrLG_C32W6qZiMOMBADO2qRztqZ6YY_BmtrdqKdztx-15YdDvt4o -d 'Updated'",
-    "ship": "npm run push && npm run deploy"
+    "ship": "npm run push && npm run deploy",
+    "pull": "echo '請勿 pull；以本機為準，只做 npm run push 或 npm run ship。' && exit 1"
   }
 }

@@ -144,6 +144,10 @@ function handleLineWebhook(data) {
       const filterResult = messFilter(msg); 
 
       if (filterResult) {
+        // isReply 絕對控制：線上預約（查詢空位）時，若 isReply === false 不跑後續、不 Reply
+        if (filterResult.type === "BOOKING" && filterResult.desc === "查詢空位" && storeInfo && storeInfo.isReply === false) {
+          continue;
+        }
         // [我的會員][課程介紹] 不用出現挽留清單、也不 Reply；只有 [線上預約] 才寫入清單並有機會 Reply
         var skipList = (filterResult.desc === "會員權益" || filterResult.desc === "了解課程");
         if (!skipList && validToken) {
@@ -178,9 +182,12 @@ function handleLineWebhook(data) {
 
 // ==========================================
 // [核心] 寫入挽留清單 (支援 AI 與 固定模板)
-// storeInfo 可選：若有 storeInfo.isReply === false（店家基本資料 I 欄），不自動回覆
+// storeInfo 可選：若有 storeInfo.isReply === false（店家基本資料 I 欄），不自動回覆、不查空位、不寫入清單（絕對控制）
 // ==========================================
 function addToRetentionList(userId, triggerMsg, token, context, sayId, replyToken, botDestinationId, storeInfo) {
+  if (storeInfo && storeInfo.isReply === false && context && context.type === "BOOKING") {
+    return;
+  }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss && typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID) ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
   if (!ss) return;
@@ -208,10 +215,12 @@ function addToRetentionList(userId, triggerMsg, token, context, sayId, replyToke
   let finalContent = "";
 
   if (context.type !== "IGNORE") {
-    // 1. 先查空位 (如果需要的話)
+    // 1. 先查空位 (如果需要的話)；isReply 為 false 時不查空位、不顯示可預約時間（絕對控制）
     let slotsStr = "";
-    if (context.type === "BOOKING" && sayId) {
+    if (context.type === "BOOKING" && sayId && (storeInfo == null || storeInfo.isReply !== false)) {
        slotsStr = getUpcomingSlots(sayId, token); // 呼叫查空位函式
+    } else if (context.type === "BOOKING" && storeInfo && storeInfo.isReply === false) {
+       slotsStr = "(此店家未開放查詢可預約時間，請直接聯繫店家。)";
     }
 
     // 2. 判斷要用 AI 還是 模板
@@ -223,9 +232,13 @@ function addToRetentionList(userId, triggerMsg, token, context, sayId, replyToke
     } else {
       // === 走固定模板路線 (省錢、快速) ===
       if (context.template) {
-        finalContent = context.template
-          .replace("${name}", displayName)
-          .replace("${slots}", slotsStr || "(目前查詢較滿，請直接聯繫小編)");
+        if (context.desc === "查詢空位" && (!slotsStr || !slotsStr.trim())) {
+          finalContent = "Hi " + displayName + "，近幾天都滿了，可以呼叫貓小編協助看預約時間唷～";
+        } else {
+          finalContent = context.template
+            .replace("${name}", displayName)
+            .replace("${slots}", slotsStr || "(目前查詢較滿，請直接聯繫小編)");
+        }
       } else {
         finalContent = "(系統紀錄，無須回覆)";
       }
@@ -335,7 +348,7 @@ function cleanupRetentionList() {
 
 /**
  * 透過 Core API 發送 LINE Reply（action=lineReply）。
- * 指令碼屬性需設 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY。
+ * 指令碼屬性需設 PAO_CAT_CORE_API_URL（PaoMao_Core「網路應用程式」部署網址，結尾 /exec）、PAO_CAT_SECRET_KEY。
  * @returns {boolean} 已透過 API 送出為 true，未設定 API 或失敗為 false
  */
 function sendLineReplyViaCoreApi(replyToken, text, token) {
@@ -396,14 +409,16 @@ function generateContextualAI(name, context, extraInfo) {
 }
 
 // [修正] 查空位函式 (使用台灣時區)，同一間店 10 分鐘內共用同一份空位，減少 SayDou API 呼叫
-var SLOTS_CACHE_TTL_SEC = 600; // 10 分鐘
+var SLOTS_CACHE_TTL_SEC = 600; // 0=關閉快取；要開啟請改為 600（10 分鐘）
 
 function getUpcomingSlots(sayId) {
   if (!sayId) return null;
-  var cacheKey = "slots_" + String(sayId);
-  var cache = CacheService.getScriptCache();
-  var cached = cache.get(cacheKey);
-  if (cached != null && cached !== "") return cached;
+  if (SLOTS_CACHE_TTL_SEC > 0) {
+    var cacheKey = "slots_" + String(sayId);
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get(cacheKey);
+    if (cached != null && cached !== "") return cached;
+  }
 
   // 1. 設定參數
   const today = new Date();
@@ -427,7 +442,7 @@ function getUpcomingSlots(sayId) {
       lines.push(datePart + (weekPart ? " (" + weekPart + ")" : "") + "：" + slotsStr);
     }
     var result = (lines.length > 0) ? "近期空位:\n" + lines.join(",\n") : null;
-    if (result) cache.put(cacheKey, result, SLOTS_CACHE_TTL_SEC);
+    if (result && SLOTS_CACHE_TTL_SEC > 0) CacheService.getScriptCache().put("slots_" + String(sayId), result, SLOTS_CACHE_TTL_SEC);
     return result;
   } catch (e) {
     Logger.log("查空位發生錯誤: " + e.toString());

@@ -176,38 +176,30 @@ function sendExcelFile(userId, managedStores, start, end) {
   return `📂 你的打卡紀錄 Excel 檔案已準備好！\n🔗 下載連結：${sheetUrl}`;
 }
 
-// 登記請求表單
+// 登記請求表單（員工表單 → 請求表單紀錄）
+// 若同人同月已有紀錄則直接回傳該筆，不重複跑、不重複寫入
 function getSignExcel(userId, start) {
   const ss = SpreadsheetApp.openById(LINE_STAFF_SS_ID);
   const sheet = ss.getSheetByName("請求表單紀錄");
   if (!sheet) return;
 
   const lastRow = sheet.getLastRow();
-  // 如果表單是空的(只有標題)，直接跳過去新增
   if (lastRow > 1) {
-    const data = sheet.getRange(2, 1, lastRow - 1, 5).getValues(); // 取 A 到 E 欄，避開大量空欄位讀取
-    
-    // ★ 優化：從最後一筆開始「倒序搜尋」，效率較高
+    const data = sheet.getRange(2, 1, lastRow, 6).getValues(); // A~F：uuid, userId, start, url, createTime, updateTime
+    // 從最後一筆倒序搜尋（同一人同月可能有多筆時取最新一筆）
     for (let i = data.length - 1; i >= 0; i--) {
       const row = data[i];
-      // row[1] 是 userId
       if (row[1] === userId) {
-        // 先比對 ID，符合再處理日期，節省運算
         const rowDateStr = Utilities.formatDate(new Date(row[2]), "Asia/Taipei", "yyyy-MM");
-        
         if (rowDateStr === start) {
-           // 檢查是否在 30 分鐘內 (row[4] 是創建時間)
-           const timeDiff = new Date().getTime() - new Date(row[4]).getTime();
-           if (timeDiff < 1800000) {
-             console.log("發現重複請求，且在冷卻時間內");
-             return [row[0], row[1], row[2], row[3], row[4]]; // 回傳原始資料結構
-           }
+          console.log("發現同人同月已有請求紀錄，不重複跑");
+          return [row[0], row[1], row[2], row[3], row[4], row[5]];
         }
       }
     }
   }
 
-  // 沒找到重複的，建立新資料
+  // 沒找到同人同月紀錄，建立新資料並寫入請求表單紀錄
   const uuid = Utilities.getUuid();
   const now = new Date();
   // 欄位: [uuid, userId, start, url(空), createTime, updateTime(空)]

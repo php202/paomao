@@ -1,8 +1,8 @@
 /**
- * Core API 客戶端：透過 PaoMao_Core 中央 API 取得資料，不需加入 Core 程式庫。
+ * Core API 客戶端：透過 PaoMao_Core 中央 API（網路應用程式部署）取得資料。
  *
  * 【泡泡貓拉廣告資料 專案】指令碼屬性：
- * - PAO_CAT_CORE_API_URL = Core 部署的網址（例如 https://script.google.com/macros/s/xxx/exec）
+ * - PAO_CAT_CORE_API_URL = PaoMao_Core「網路應用程式」部署的網址（結尾 /exec，從 部署→管理部署 複製）
  * - PAO_CAT_SECRET_KEY = 與 PaoMao_Core 相同的密鑰
  */
 
@@ -28,8 +28,10 @@ var CoreApi = (function () {
     var fullUrl = c.url + (c.url.indexOf("?") >= 0 ? "&" : "?") + query.join("&");
     var res = UrlFetchApp.fetch(fullUrl, { muteHttpExceptions: true, timeout: 90 });
     var text = res.getContentText();
-    if (res.getResponseCode() !== 200) {
-      throw new Error("Core API 錯誤: " + res.getResponseCode() + " " + text);
+    var code = res.getResponseCode();
+    if (code !== 200) {
+      if (code === 404) throw new Error("Core API 404：請在本專案指令碼屬性將 PAO_CAT_CORE_API_URL 設為 https://script.google.com/macros/s/AKfycbxuCU1mQVUiZ-sF0eAJr5ELc0yYaOLi9F1bj7Y2qga1zh1KqzT3c8NjZz6o6-ok-9U21w/exec（結尾 /exec，勿用測試部署）。");
+      throw new Error("Core API 錯誤: " + code + " " + text);
     }
     try {
       return JSON.parse(text);
@@ -56,8 +58,10 @@ var CoreApi = (function () {
       timeout: 90
     });
     var text = res.getContentText();
-    if (res.getResponseCode() !== 200) {
-      throw new Error("Core API 錯誤: " + res.getResponseCode() + " " + text);
+    var code = res.getResponseCode();
+    if (code !== 200) {
+      if (code === 404) throw new Error("Core API 404：請在本專案指令碼屬性將 PAO_CAT_CORE_API_URL 設為 https://script.google.com/macros/s/AKfycbxuCU1mQVUiZ-sF0eAJr5ELc0yYaOLi9F1bj7Y2qga1zh1KqzT3c8NjZz6o6-ok-9U21w/exec（結尾 /exec，勿用測試部署）。");
+      throw new Error("Core API 錯誤: " + code + " " + text);
     }
     try {
       return JSON.parse(text);

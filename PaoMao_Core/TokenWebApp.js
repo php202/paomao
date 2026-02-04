@@ -4,7 +4,7 @@
  * 部署請使用同一個網路應用程式（CoreWebApp 的 doGet/doPost）。
  *
  * 【呼叫端】指令碼屬性：
- * - PAO_CAT_TOKEN_API_URL 或 PAO_CAT_CORE_API_URL = 部署網址
+ * - PAO_CAT_TOKEN_API_URL 或 PAO_CAT_CORE_API_URL = 此專案「網路應用程式」部署網址（結尾 /exec）
  * - PAO_CAT_SECRET_KEY = 與 PaoMao_Core 相同的密鑰
  * 取得 token：GET 部署網址?key=密鑰 或 ?key=密鑰&action=token
  */

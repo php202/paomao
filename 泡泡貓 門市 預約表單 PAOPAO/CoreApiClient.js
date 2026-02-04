@@ -1,6 +1,6 @@
 /**
  * Core API 客戶端：runReservationReport 透過中央 API 取得 token 與店家列表。
- * 指令碼屬性：PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY
+ * 指令碼屬性：PAO_CAT_CORE_API_URL = PaoMao_Core「網路應用程式」部署網址（結尾 /exec）、PAO_CAT_SECRET_KEY
  */
 var CoreApi = (function () {
   function getConfig() {
@@ -22,7 +22,11 @@ var CoreApi = (function () {
     var fullUrl = c.url + (c.url.indexOf("?") >= 0 ? "&" : "?") + query.join("&");
     var res = UrlFetchApp.fetch(fullUrl, { muteHttpExceptions: true, timeout: 90 });
     var text = res.getContentText();
-    if (res.getResponseCode() !== 200) throw new Error("Core API 錯誤: " + res.getResponseCode() + " " + text.slice(0, 150));
+    var code = res.getResponseCode();
+    if (code !== 200) {
+      if (code === 404) throw new Error("Core API 404：請在本專案指令碼屬性將 PAO_CAT_CORE_API_URL 設為 https://script.google.com/macros/s/AKfycbxuCU1mQVUiZ-sF0eAJr5ELc0yYaOLi9F1bj7Y2qga1zh1KqzT3c8NjZz6o6-ok-9U21w/exec（結尾 /exec，勿用測試部署）。");
+      throw new Error("Core API 錯誤: " + code + " " + text.slice(0, 150));
+    }
     return text;
   }
 

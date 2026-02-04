@@ -122,21 +122,28 @@ function createReservation(phone, dateStr, timeStr, workhr, remark, sayId, peopl
   if (!member) throw new Error(`找不到會員，手機: ${phone}`);
 
   // 3. [修正重點] 改用 Core.findAvailableSlots 來找空位和員工
-  // 我們利用這個強大的函式幫我們算出「這個時段到底有沒有空位」
+  // 人力池 validStaffSet 用「當週」日期範圍計算，才能納入當天無排程但本週有排程的員工（如海每刻01/02）
   const durationMin = workhr * 60;
-  
-  // 這裡我們直接查「指定的那一天」和「指定的時間」
+  const TZ = Session.getScriptTimeZone() || 'Asia/Taipei';
+  const bookingDate = new Date(dateStr);
+  const weekStart = new Date(bookingDate);
+  weekStart.setDate(bookingDate.getDate() - 3);
+  const weekEnd = new Date(bookingDate);
+  weekEnd.setDate(bookingDate.getDate() + 3);
+  const weekStartStr = Utilities.formatDate(weekStart, TZ, 'yyyy-MM-dd');
+  const weekEndStr = Utilities.formatDate(weekEnd, TZ, 'yyyy-MM-dd');
+
   const result = Core.findAvailableSlots(
     sayId, 
-    dateStr, // startDate
-    dateStr, // endDate (只查一天)
+    weekStartStr, // 當週範圍：讓 validStaffSet 包含本週有預約/排休的員工
+    weekEndStr, 
     peopleCount, 
     durationMin,
     {
-      timeStart: timeStr, // 指定搜尋的開始時間 (例如 15:00)
-      timeEnd: timeStr,   // 結束時間設一樣，強迫它只檢查這一個時間點
+      timeStart: timeStr,
+      timeEnd: timeStr,
       token: token,
-      weekDays: [new Date(dateStr).getDay()] // 只查當天星期幾，避免被預設 filter 濾掉
+      weekDays: [bookingDate.getDay()]
     }
   );
 
@@ -144,12 +151,11 @@ function createReservation(phone, dateStr, timeStr, workhr, remark, sayId, peopl
   // 注意：Core.findAvailableSlots 的原始設計是回傳「有空位的時段」，
   // 但為了預約，我們需要知道「具體是哪位員工有空」。
   
-  // ⚠️ 這裡遇到一個架構問題：
-  // Core.findAvailableSlots 目前只回傳 "有空位"，但沒回傳 "是誰有空"。
-  // 為了解決這個問題，我們需要一個專門用來「分配員工」的輔助函式。
-  // (請參考下方的 getAvailableStaffIds_Reborn)
-  
-  const availableStaffIds = getAvailableStaffIds_Reborn(dateStr, timeStr, durationMin, sayId, token);
+  // 使用 Core 回傳的 validStaffSet（與查詢空位同一套人力池），確保預約時人力計算一致
+  const validStaffSet = (result.status && result.validStaffSet && result.validStaffSet.length > 0)
+    ? result.validStaffSet
+    : null;
+  const availableStaffIds = getAvailableStaffIds_Reborn(dateStr, timeStr, durationMin, sayId, token, validStaffSet);
 
   // 檢查人數是否足夠
   if (availableStaffIds.length < peopleCount) {
@@ -226,17 +232,42 @@ function createReservation(phone, dateStr, timeStr, workhr, remark, sayId, peopl
 // ==========================================
 /**
  * 找出指定時段內空閒的員工 ID 列表
- * 這其實就是 Core 邏輯的「反向操作」：Core 算空位，這裡算人頭
+ * 若傳入 validStaffSet（來自 Core.findAvailableSlots），則直接作為可預約人力池，與查詢空位邏輯一致
+ * @param {Array<number>|null} validStaffSet - 可選，Core.findAvailableSlots 回傳的 validStaffSet
  */
-function getAvailableStaffIds_Reborn(date, time, durationMin, sayId, token) {
-  // 1. [Core] 取得該店所有員工
-  const allStaffSet = Core.getStoreCapacityIds(sayId, token);
+function getAvailableStaffIds_Reborn(date, time, durationMin, sayId, token, validStaffSet) {
+  let allStaffSet;
+  if (validStaffSet && validStaffSet.length > 0) {
+    // 使用與 Core.findAvailableSlots 相同的人力池，確保預約時不會少算（如海每刻01/02）
+    allStaffSet = new Set(validStaffSet.map(function (id) { return Number(id); }).filter(function (n) { return n > 0; }));
+  } else {
+    // 相容舊呼叫：自行組建人力池
+    const baseStaffSet = Core.getStoreCapacityIds(sayId, token);
+    allStaffSet = new Set();
+    if (baseStaffSet && baseStaffSet.size > 0) {
+      baseStaffSet.forEach(function (id) {
+        var n = Number(id);
+        if (n > 0) allStaffSet.add(n);
+      });
+    }
+    const { reservations, dutyoffs } = Core.fetchReservationsAndOffs(sayId, date, date, token);
+    (reservations || []).forEach(function (r) {
+      var n = r && r.usrsid != null ? Number(r.usrsid) : 0;
+      if (n > 0) allStaffSet.add(n);
+    });
+    (dutyoffs || []).forEach(function (d) {
+      var n = d && d.usrsid != null ? Number(d.usrsid) : 0;
+      if (n > 0) allStaffSet.add(n);
+    });
+  }
   if (!allStaffSet || allStaffSet.size === 0) return [];
 
-  // 2. [Core] 取得當天預約資料
-  const { reservations, dutyoffs } = Core.fetchReservationsAndOffs(sayId, date, date, token);
+  // 3. 取得當日預約／排休以計算忙碌員工
+  const { reservations: res, dutyoffs: offs } = Core.fetchReservationsAndOffs(sayId, date, date, token);
+  const reservations = res || [];
+  const dutyoffs = offs || [];
 
-  // 3. 計算目標時段的分鐘數區間
+  // 4. 計算目標時段的分鐘數區間
   const startMin = Core.hhmmToMinutes(time);
   const endMin = startMin + durationMin;
   
@@ -246,11 +277,12 @@ function getAvailableStaffIds_Reborn(date, time, durationMin, sayId, token) {
   reservations.forEach(r => {
     const rStart = Core.isoToMinutes(r.rsvtim);
     const rEnd = Core.isoToMinutes(r.endtim);
+    const ru = r && r.usrsid != null ? Number(r.usrsid) : 0;
     
     // 時間重疊
     if (rEnd > startMin && rStart < endMin) {
-      if (allStaffSet.has(r.usrsid)) {
-        busyStaffIds.add(r.usrsid);
+      if (ru > 0 && allStaffSet.has(ru)) {
+        busyStaffIds.add(ru);
       }
     }
   });
@@ -262,15 +294,16 @@ function getAvailableStaffIds_Reborn(date, time, durationMin, sayId, token) {
 
     const dStart = Core.isoToMinutes(d.startm);
     const dEnd = Core.isoToMinutes(d.endtim);
+    const du = d && d.usrsid != null ? Number(d.usrsid) : 0;
     
     if (dEnd > startMin && dStart < endMin) {
-      if (allStaffSet.has(d.usrsid)) {
-        busyStaffIds.add(d.usrsid);
+      if (du > 0 && allStaffSet.has(du)) {
+        busyStaffIds.add(du);
       }
     }
   });
 
-  // 4. 排除忙碌員工，剩下的就是有空的
+  // 5. 排除忙碌員工，剩下的就是有空的
   const availableStaffs = [];
   allStaffSet.forEach(staffId => {
     if (!busyStaffIds.has(staffId)) {

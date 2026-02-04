@@ -27,13 +27,24 @@ function getBearerTokenFromSheet() {
   return token ? String(token).trim() : '';
 }
 
+/** 正規化手機為純數字 09xxxxxxxx（與神美 API／表單比對用，避免 0911-789967 與 0911789967 不一致） */
+function normalizePhone(phone) {
+  if (!phone || typeof phone !== 'string') return '';
+  var digits = String(phone).replace(/\D/g, '');
+  if (digits.length === 9 && digits.charAt(0) === '9') return '0' + digits;
+  if (digits.length >= 10) return digits.slice(-10);
+  return '';
+}
+
 // 用手機抓出神美會員
 function getMemApi(phone) {
+  var keyword = normalizePhone(phone);
+  if (!keyword) return null;
   const bearerToken = getBearerTokenFromSheet()
   const apiUrl =
     'https://saywebdatafeed.saydou.com/api/management/unearn/memberStorecash' +
     '?page=0&limit=20&sort=stcash&order=desc' +
-    '&keyword=' + encodeURIComponent(phone) +
+    '&keyword=' + encodeURIComponent(keyword) +
     '&showGroup=0&tabIndex=0';
 
   try {
@@ -69,7 +80,67 @@ function getMemApi(phone) {
     return null;
   }
 }
-// 要塞入 phones
+
+/** GAS UrlFetchApp.fetchAll 單次並行數（官方建議 20，過高易逾時／限流） */
+var FETCH_ALL_LIMIT = 20;
+
+/**
+ * 並行依手機查會員（用 UrlFetchApp.fetchAll 一次打多支 API）
+ * @param {string[]} phones - 手機號碼陣列（可含重複，會去重後再查）
+ * @returns {Object.<string, Object|null>} phone -> member 或 null
+ */
+function getMemApiBatch(phones) {
+  var bearerToken = getBearerTokenFromSheet();
+  var uniq = [];
+  var seen = {};
+  for (var p = 0; p < phones.length; p++) {
+    var ph = normalizePhone(phones[p] != null ? String(phones[p]).trim() : '');
+    if (!ph || seen[ph]) continue;
+    seen[ph] = true;
+    uniq.push(ph);
+  }
+  var out = {};
+  for (var i = 0; i < uniq.length; i += FETCH_ALL_LIMIT) {
+    var chunk = uniq.slice(i, i + FETCH_ALL_LIMIT);
+    var requests = chunk.map(function (phone) {
+      var apiUrl = 'https://saywebdatafeed.saydou.com/api/management/unearn/memberStorecash' +
+        '?page=0&limit=20&sort=stcash&order=desc' +
+        '&keyword=' + encodeURIComponent(phone) +
+        '&showGroup=0&tabIndex=0';
+      return {
+        url: apiUrl,
+        method: 'get',
+        headers: { Authorization: 'Bearer ' + bearerToken },
+        muteHttpExceptions: true
+      };
+    });
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      Logger.log('getMemApiBatch fetchAll: ' + e);
+      for (var k = 0; k < chunk.length; k++) out[chunk[k]] = null;
+      continue;
+    }
+    for (var j = 0; j < responses.length; j++) {
+      var phone = chunk[j];
+      var resp = responses[j];
+      try {
+        var code = resp.getResponseCode();
+        var json = JSON.parse(resp.getContentText() || '{}');
+        if (code === 200 && json && json.data && json.data.items && json.data.items.length > 0) {
+          out[phone] = json.data.items[0];
+        } else {
+          out[phone] = null;
+        }
+      } catch (err) {
+        out[phone] = null;
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * [主要功能] 根據手機號碼自動執行退費
  * @param {string} phone 手機號碼
@@ -178,6 +249,44 @@ function fetchTransactions(startDate, endDate, storeIds, page = 0, limit = 50) {
     console.error("[Core] fetchTransactions 錯誤：" + e.message);
     return { data: { total: 0, items: [] } };
   }
+}
+
+/**
+ * [小費表／五星好評] 依日期區間拉取 CRM 會員列表（供合併消費紀錄時取得手機、儲值金）
+ * @param {string} startDate - yyyy-MM-dd
+ * @param {string} endDate - yyyy-MM-dd
+ * @returns {Array} 會員項目陣列，每筆含 membid, phone_, stcash 等
+ */
+function fetchMembersByDateRange(startDate, endDate) {
+  var bearerToken = getBearerTokenFromSheet();
+  if (!bearerToken) return [];
+  var all = [];
+  var page = 0;
+  var limit = 50;
+  var res, items;
+  do {
+    var apiUrl = 'https://saywebdatafeed.saydou.com/api/management/crm/members?page=' + page + '&limit=' + limit +
+      '&sort=membid&order=desc&keyword=&start=' + encodeURIComponent(startDate) + '&end=' + encodeURIComponent(endDate) +
+      '&searchLeaveStaffCtrl=null&searchProductCtrl=null&searchStaffCtrl=null&godsid=0&usrsid=0&line=0&godnam=&usrnam=&showGroup=0';
+    try {
+      res = UrlFetchApp.fetch(apiUrl, {
+        method: 'get',
+        headers: { 'Authorization': 'Bearer ' + bearerToken },
+        muteHttpExceptions: true
+      });
+      var json = JSON.parse(res.getContentText());
+      items = (json && json.data && json.data.items) ? json.data.items : [];
+      for (var i = 0; i < items.length; i++) {
+        var m = items[i];
+        all.push({ membid: m.membid, phone_: m.phone_ || '', stcash: m.stcash != null ? m.stcash : '' });
+      }
+      page++;
+    } catch (e) {
+      console.error("[Core] fetchMembersByDateRange 錯誤：" + e.message);
+      break;
+    }
+  } while (items && items.length >= limit);
+  return all;
 }
 
 /**
@@ -380,6 +489,152 @@ function getAllTransactionsByMembid(membid, pageSize) {
     page++;
   } while (res.items && res.items.length >= limit);
   return all;
+}
+
+/** transaction API 每頁筆數（與 findLatestConsumptionBefore 一致） */
+var TRANSACTION_PAGE_LIMIT = 50;
+
+/**
+ * 並行拉取多個 membid 的全部分頁消費紀錄（用 UrlFetchApp.fetchAll）
+ * @param {number[]} membids - 會員 ID 陣列
+ * @returns {Object.<number, Array>} membid -> 該會員全部 transaction 陣列
+ */
+function getAllTransactionsByMembidBatch(membids) {
+  var bearerToken = getBearerTokenFromSheet();
+  var out = {};
+  var list = [];
+  for (var m = 0; m < membids.length; m++) {
+    var id = membids[m];
+    if (id == null) continue;
+    out[id] = [];
+    list.push({ membid: id, page: 0 });
+  }
+  var limit = TRANSACTION_PAGE_LIMIT;
+  while (list.length > 0) {
+    var chunk = list.splice(0, FETCH_ALL_LIMIT);
+    var requests = chunk.map(function (item) {
+      var apiUrl = 'https://saywebdatafeed.saydou.com/api/management/finance/transaction' +
+        '?page=' + item.page + '&limit=' + limit +
+        '&sort=ordrsn&order=desc&keyword=&searchMemberCtrl=null&searchProductCtrl=null&searchStaffCtrl=null' +
+        '&membid=' + item.membid + '&godsid=0&usrsid=0&memnam=&godnam=&usrnam=&assign=all&licnum=&goctString=';
+      return {
+        url: apiUrl,
+        method: 'get',
+        headers: { Authorization: 'Bearer ' + bearerToken },
+        muteHttpExceptions: true
+      };
+    });
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      Logger.log('getAllTransactionsByMembidBatch fetchAll: ' + e);
+      break;
+    }
+    for (var j = 0; j < responses.length; j++) {
+      var item = chunk[j];
+      var resp = responses[j];
+      try {
+        var json = JSON.parse(resp.getContentText() || '{}');
+        var items = (json && json.data && json.data.items) ? json.data.items : [];
+        if (items.length > 0) out[item.membid] = out[item.membid].concat(items);
+        if (items.length >= limit) list.push({ membid: item.membid, page: item.page + 1 });
+      } catch (err) { }
+    }
+  }
+  return out;
+}
+
+/**
+ * 從已拉好的 transaction 陣列中，找出在指定時間「之前」最近一筆消費（排除小費）。供批次結果使用。
+ * @param {Array} all - transaction 陣列
+ * @param {number} beforeTimeMs - 問卷填寫時間 (ms)
+ * @returns {Object|null} transaction 或 null
+ */
+function findLatestFromTransactionList(all, beforeTimeMs) {
+  if (!all || !all.length || beforeTimeMs == null) return null;
+  var valid = [];
+  for (var i = 0; i < all.length; i++) {
+    var t = all[i];
+    var cretim = t.cretim || t.rectim;
+    if (!cretim) continue;
+    var tMs = new Date(cretim).getTime();
+    if (tMs >= beforeTimeMs) continue;
+    var remark = (t.remark != null) ? String(t.remark) : '';
+    if (remark.indexOf('小費') >= 0) continue;
+    var hasXiaofei = false;
+    if (t.ordds && t.ordds.length) {
+      for (var j = 0; j < t.ordds.length; j++) {
+        var godnam = (t.ordds[j].godnam != null) ? String(t.ordds[j].godnam) : '';
+        if (godnam.indexOf('小費') >= 0) { hasXiaofei = true; break; }
+      }
+    }
+    if (hasXiaofei) continue;
+    valid.push(t);
+  }
+  if (valid.length === 0) return null;
+  valid.sort(function (a, b) {
+    var ta = (a.cretim || a.rectim) || '';
+    var tb = (b.cretim || b.rectim) || '';
+    return tb > ta ? 1 : (tb < ta ? -1 : 0);
+  });
+  return valid[0];
+}
+
+/**
+ * 從一筆消費紀錄（transaction）取出店家 ID。
+ * finance/transaction API（依 membid 查）回傳根層 storid；依 store 查可能回傳 stor.storid。
+ * @param {Object} t - transaction 物件
+ * @returns {string}
+ */
+function getStorIdFromTransaction(t) {
+  if (!t) return '';
+  if (t.storid !== undefined && t.storid !== null && t.storid !== '') return String(t.storid);
+  if (t.stor && t.stor.storid !== undefined && t.stor.storid !== null && t.stor.storid !== '') return String(t.stor.storid);
+  if (t.store !== undefined && t.store !== null && t.store !== '') return String(t.store);
+  return '';
+}
+
+/**
+ * 找出會員在指定時間「之前」最近一筆消費（排除名稱或備註含「小費」、不取比填問卷時間晚的消費）
+ * @param {number} membid
+ * @param {number} beforeTimeMs - 問卷填寫時間 (ms)
+ * @returns {Object|null} transaction 或 null
+ */
+function findLatestConsumptionBefore(membid, beforeTimeMs) {
+  if (!membid || beforeTimeMs == null) {
+    return null;
+  }
+  var all = getAllTransactionsByMembid(membid, 50);
+  var valid = [];
+  for (var i = 0; i < all.length; i++) {
+    var t = all[i];
+    var cretim = t.cretim || t.rectim;
+    if (!cretim) continue;
+    var tMs = new Date(cretim).getTime();
+    if (tMs >= beforeTimeMs) continue;
+    var remark = (t.remark != null) ? String(t.remark) : '';
+    if (remark.indexOf('小費') >= 0) continue;
+    var hasXiaofei = false;
+    if (t.ordds && t.ordds.length) {
+      for (var j = 0; j < t.ordds.length; j++) {
+        var godnam = (t.ordds[j].godnam != null) ? String(t.ordds[j].godnam) : '';
+        if (godnam.indexOf('小費') >= 0) { hasXiaofei = true; break; }
+      }
+    }
+    if (hasXiaofei) continue;
+    valid.push(t);
+  }
+  if (valid.length === 0) {
+    return null;
+  }
+  valid.sort(function (a, b) {
+    var ta = (a.cretim || a.rectim) || '';
+    var tb = (b.cretim || b.rectim) || '';
+    return tb > ta ? 1 : (tb < ta ? -1 : 0);
+  });
+  var chosen = valid[0];
+  return chosen;
 }
 
 /**

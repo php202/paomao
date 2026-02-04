@@ -1,5 +1,18 @@
 const coreConfig = Core.getCoreConfig();
 
+/**
+ * 讀取 Core API 相關設定。
+ * 需在本專案指令碼屬性設定：
+ * - PAO_CAT_CORE_API_URL：PaoMao_Core「網路應用程式」部署網址（結尾 /exec）
+ * - PAO_CAT_SECRET_KEY：與 Core 相同的密鑰
+ */
+function getCoreApiParams() {
+  const p = PropertiesService.getScriptProperties();
+  const url = (p.getProperty('PAO_CAT_CORE_API_URL') || '').trim();
+  const key = (p.getProperty('PAO_CAT_SECRET_KEY') || '').trim();
+  return { url, key, useApi: url.length > 0 && key.length > 0 };
+}
+
 function runAccNeed() {
   const externalSs = SpreadsheetApp.openById(coreConfig.DAILY_ACCOUNT_REPORT_SS_ID);
   
@@ -35,10 +48,12 @@ function runAccNeed() {
   
   console.log(`本次預計處理區間: ${getFormattedDate(startDate)} ~ ${getFormattedDate(endDate)}`);
 
-  // --- 2. 取得門店列表 ---
-  const storeMap = Core.getLineSayDouInfoMap();  
+  // --- 2. 取得 Core API 設定與門店列表 ---
+  const { url: coreApiUrl, key: coreApiKey, useApi } = getCoreApiParams();
+
+  const storeMap = Core.getLineSayDouInfoMap() || {};
   let stores = [];
-  for (const info of storeMap.values()) {
+  for (const info of Object.values(storeMap)) {
     if (info.saydouId) {
       stores.push({
         storid: info.saydouId,
@@ -63,8 +78,35 @@ function runAccNeed() {
 
     for (const store of stores) {
       // console.log(dateStr, store.storid); // 減少 log 避免執行過慢，除非除錯
-      
-      const apiResponse = Core.fetchDailyIncome(dateStr, store.storid);
+
+      // 優先透過 Core Web App 取得營收資料；若未設定 Core API 則退回直接呼叫 Core 程式庫
+      let apiResponse = null;
+      if (useApi) {
+        const sep = coreApiUrl.indexOf('?') >= 0 ? '&' : '?';
+        const q =
+          sep +
+          'key=' + encodeURIComponent(coreApiKey) +
+          '&action=fetchDailyIncome' +
+          '&date=' + encodeURIComponent(dateStr) +
+          '&storeId=' + encodeURIComponent(String(store.storid));
+        try {
+          const res = UrlFetchApp.fetch(coreApiUrl + q, { muteHttpExceptions: true, followRedirects: true });
+          const text = res.getContentText();
+          const json = JSON.parse(text);
+          if (json && json.status === 'ok') {
+            apiResponse = json.data || null;
+          } else {
+            console.error(`Core API dailyIncome 失敗 (${dateStr}, ${store.storid}): ` + (json && json.message ? json.message : '未知錯誤'));
+          }
+        } catch (e) {
+          console.error(`Core API dailyIncome 連線錯誤 (${dateStr}, ${store.storid}): ${e.message || e}`);
+        }
+      }
+
+      // 若 Core API 未設定或失敗，改用 Core 程式庫直接打 SayDou
+      if (!apiResponse) {
+        apiResponse = Core.fetchDailyIncome(dateStr, store.storid);
+      }
       
       if (apiResponse && apiResponse.data && apiResponse.data.totalRow) {
         const runData = apiResponse.data.totalRow;
@@ -80,6 +122,7 @@ function runAccNeed() {
         const transferRecord = runData.paymentMethod?.[9]?.total || 0;
         const transferUnearn = transferTotal - transferRecord;
         const lineUnearn = lineTotal - lineRecord;
+        const todayService = runData.businessIncome?.service ?? 0; // 今日業績 (L 欄)
 
         const rowData = [
           dateStr,        
@@ -91,7 +134,8 @@ function runAccNeed() {
           transferRecord,
           lineRecord,
           transferUnearn,
-          lineUnearn
+          lineUnearn,
+          todayService   // L 欄：今日業績 (fetchDailyIncome > data > totalRow > businessIncome > service)
         ];
 
         dailyAllRows.push(rowData);
