@@ -479,7 +479,7 @@ function routeMessageEvent(event) {
         }
       }
 
-      // 3.5a 上月小費：管理者看負責店家、員工看備註含自己員工編號，回傳試算表連結
+      // 3.5a 上月小費：任何人可檢視。管理者看負責店家、員工看備註含自己員工編號；未在清單者取得上月全部小費試算表連結。
       if (text.trim() === "上月小費" || text.indexOf("上月小費") >= 0) {
         try {
           var isManager = auth.identity && auth.identity.indexOf("manager") !== -1;
@@ -494,18 +494,6 @@ function routeMessageEvent(event) {
             });
           }
           var employeeCode = (auth.employeeCode != null && String(auth.employeeCode).trim() !== "") ? String(auth.employeeCode).trim() : "";
-          if (!isManager && !isEmployee) {
-            reply(replyToken, "此功能僅限已開通的管理者或員工使用。請確認您已於「管理者清單」或「員工清單」中設定。");
-            return;
-          }
-          if (isManager && managedStoreIds.length === 0 && !employeeCode) {
-            reply(replyToken, "管理者請在「管理者清單」填寫負責店家；或您可改以員工身份查詢（需在「員工清單」有員工編號）。");
-            return;
-          }
-          if (!isManager && isEmployee && !employeeCode) {
-            reply(replyToken, "員工清單中未找到您的員工編號（L 欄），無法篩選您的小費。請請主管補上。");
-            return;
-          }
           var url = "";
           var key = "";
           try {
@@ -550,6 +538,10 @@ function routeMessageEvent(event) {
               if (data.cached) {
                 tipsMsg = "✅ 上月小費（同月份已有產出）\n\n開啟報表：\n" + data.url;
               }
+              if (data.shareWarning) {
+                tipsMsg += "\n\n⚠️ " + data.shareWarning;
+              }
+              if (data.shareWarning) tipsMsg += "\n\n⚠️ " + data.shareWarning;
               reply(replyToken, tipsMsg);
               return;
             }

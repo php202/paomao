@@ -197,7 +197,7 @@ function actionLastMonthTipsReport(params) {
   }
   var result = getOrCreateLastMonthTipsSheet({ managedStoreIds: managedStoreIds, employeeCode: employeeCode, userId: userId });
   if (result.ok) {
-    return jsonOut({ ok: true, url: result.url, cached: result.cached === true, rowCount: result.rowCount });
+    return jsonOut({ ok: true, url: result.url, cached: result.cached === true, rowCount: result.rowCount, shareWarning: result.shareWarning || undefined });
   }
   return jsonOut({ ok: false, message: result.message || "未知錯誤" });
 }

@@ -291,6 +291,10 @@ function syncLastMonthQuestionnaireToConsolidated() {
     }
   }
 
+  var memberNameCol = -1;
+  for (var c = 0; c < form.headerRow13.length; c++) {
+    if (String(form.headerRow13[c]).trim() === '會員姓名') { memberNameCol = c; break; }
+  }
   var outRows = [];
   for (var i = startIndex; i < batchLimit; i++) {
     var r = form.rows[i];
@@ -300,6 +304,9 @@ function syncLastMonthQuestionnaireToConsolidated() {
     var qtTime = parseFormTimestamp(obj['時間戳記']);
     var qtMs = qtTime ? qtTime.getTime() : 0;
     var member = phone ? (getMemApiBatchFn ? membersMap[phone] : getMemApiFn(phone)) : null;
+    if (memberNameCol >= 0 && member && member.memnam != null && String(member.memnam).trim() !== '') {
+      rawRow[memberNameCol] = String(member.memnam).trim();
+    }
     var consumption = null;
     if (member && member.membid && qtMs) {
       if (findLatestFromListFn && transactionsByMembid[member.membid]) {
@@ -336,7 +343,14 @@ function syncLastMonthQuestionnaireToConsolidated() {
   }
   writtenThisRun = outRows.length;
   if (outRows.length > 0) {
-    sheet.getRange(startWriteRow, 1, outRows.length, headerRow.length).setValues(outRows);
+    var numRows = outRows.length;
+    var numCols = headerRow.length;
+    // getRange(row, col, numRows, numCols)：第 3 個參數是「列數」不是 endRow，勿用 startWriteRow + numRows
+    for (var ri = 0; ri < outRows.length; ri++) {
+      while (outRows[ri].length < numCols) outRows[ri].push('');
+      if (outRows[ri].length > numCols) outRows[ri] = outRows[ri].slice(0, numCols);
+    }
+    sheet.getRange(startWriteRow, 1, numRows, numCols).setValues(outRows);
   }
   var nextIndex = batchLimit;
   var completed = nextIndex >= form.rows.length;
@@ -472,6 +486,164 @@ function runSyncLastMonthTipsConsolidatedTrigger() {
   }
 }
 
+/** 小費統整表 B 欄 = 手機（1-based 第 2 欄），T 欄 = 姓名（1-based 第 20 欄） */
+var TIPS_CONSOLIDATED_COL_B = 2;
+var TIPS_CONSOLIDATED_COL_T = 20;
+
+/**
+ * 小費統整表（gid=1727178779）：若 B 欄有手機，依神美 API 查會員 memnam 或 name，寫入 T 欄。
+ * 可從 Apps Script 編輯器手動執行，或排程觸發。
+ * 改版：分批處理 + 記憶體優化 + 效能計時
+ */
+function fillTipsConsolidatedNameFromPhoneBatch() {
+  console.time('TotalExecutionTime'); // [Log] 開始計時總執行時間
+  
+  // --- 設定區 ---
+  var BATCH_SIZE = 200;   // ★ 每批處理幾筆 (建議 100~500 之間，依 API 速度而定)
+  var BATCH_DELAY_MS = 2000; // ★ 每批結束後停留幾毫秒再跑下一批，避免 API 限流／被擋 (建議 1500~3000)
+  
+  var ssId = (typeof TIPS_CONSOLIDATED_SS_ID !== 'undefined' && TIPS_CONSOLIDATED_SS_ID) ? String(TIPS_CONSOLIDATED_SS_ID).trim() : '';
+  var gid = typeof TIPS_CONSOLIDATED_SHEET_GID !== 'undefined' ? TIPS_CONSOLIDATED_SHEET_GID : 1727178779;
+  
+  var getMemApiBatchFn = typeof getMemApiBatch === 'function' ? getMemApiBatch : (typeof Core !== 'undefined' && Core.getMemApiBatch ? Core.getMemApiBatch : null);
+  
+  if (!ssId) { console.error('錯誤: 未設定 TIPS_CONSOLIDATED_SS_ID'); return { ok: false, message: '未設定 TIPS_CONSOLIDATED_SS_ID' }; }
+  if (!getMemApiBatchFn) { console.error('錯誤: getMemApiBatch 未定義'); return { ok: false, message: 'getMemApiBatch 未定義' }; }
+
+  try {
+    console.log('正在開啟試算表...');
+    var ss = SpreadsheetApp.openById(ssId);
+    
+    var sheets = ss.getSheets();
+    var sheet = null;
+    for (var i = 0; i < sheets.length; i++) {
+      if (Number(sheets[i].getSheetId()) === Number(gid)) { sheet = sheets[i]; break; }
+    }
+    
+    if (!sheet) { console.error('錯誤: 找不到 GID=' + gid); return { ok: false, message: '找不到 GID=' + gid }; }
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) { console.log('表格無資料，結束。'); return { ok: true, updatedCount: 0 }; }
+
+    var totalRows = lastRow - 1;
+    console.log('資料總列數: ' + totalRows + ' (從第2列到第' + lastRow + '列)');
+    
+    var totalUpdatedCount = 0;
+
+    // --- 分批迴圈開始 ---
+    // startRow 代表這一批在 Sheet 中的起始「列號」(Row Index)
+    for (var startRow = 2; startRow <= lastRow; startRow += BATCH_SIZE) {
+      
+      // 計算這一批要抓幾列 (處理最後一批不足 BATCH_SIZE 的情況)
+      var rowsToProcess = Math.min(BATCH_SIZE, lastRow - startRow + 1);
+      var endRow = startRow + rowsToProcess - 1;
+      
+      console.log('>> 正在處理批次: 第 ' + startRow + ' 列 到 第 ' + endRow + ' 列 (' + rowsToProcess + '筆)');
+
+      // 1. 讀取這一批的資料 (只讀 B欄電話 與 T欄名字)
+      // 注意：這裡使用 Range 讀取，減少記憶體消耗
+      var phoneRange = sheet.getRange(startRow, TIPS_CONSOLIDATED_COL_B, rowsToProcess, 1);
+      var nameRange = sheet.getRange(startRow, TIPS_CONSOLIDATED_COL_T, rowsToProcess, 1);
+      
+      var phoneValues = phoneRange.getValues();
+      var nameValues = nameRange.getValues();
+
+      var phonesToLookup = []; // 這一批次需要查的電話
+      var lookupIndices = [];  // 紀錄是這一批次裡的第幾筆需要查
+
+      // 2. 篩選：僅「T 欄為空」且 B 欄有手機才查，避免重複查、被 API 擋
+      for (var i = 0; i < rowsToProcess; i++) {
+        var existingName = nameValues[i][0];
+        if (existingName != null && String(existingName).trim() !== '') continue; // T 已有姓名，不查
+          var rawPhone = phoneValues[i][0];
+          var ph = normalizePhoneForTips(rawPhone ? String(rawPhone).trim() : '');
+          if (ph) {
+            phonesToLookup.push(ph);
+            lookupIndices.push(i);
+          }
+      }
+
+      console.log('   - 此批次需查詢數量: ' + phonesToLookup.length + ' 筆');
+
+      // 如果這批完全不需要查，就跳下一批
+      if (phonesToLookup.length === 0) {
+        console.log('   - 跳過 (皆已有名字或無電話)');
+        continue;
+      }
+
+      // 3. 呼叫 API (針對這一批的電話)
+      console.time('   - API 耗時'); // [Log] API 計時開始
+      
+      // 去重
+      var uniquePhones = [];
+      var seen = {};
+      for (var k = 0; k < phonesToLookup.length; k++) {
+        if (!seen[phonesToLookup[k]]) {
+          uniquePhones.push(phonesToLookup[k]);
+          seen[phonesToLookup[k]] = true;
+        }
+      }
+
+      var membersMap = {};
+      try {
+        membersMap = getMemApiBatchFn(uniquePhones);
+      } catch (apiErr) {
+        console.error('   X API 呼叫失敗:', apiErr);
+        // API 失敗不中斷整個程式，繼續跑下一批，或者你可以選擇 return
+        continue; 
+      }
+      console.timeEnd('   - API 耗時'); // [Log] API 計時結束
+
+      // 4. 填回資料到記憶體陣列 (nameValues)
+      var batchUpdated = 0;
+      
+      // 只遍歷需要更新的那些 index
+      for (var idx = 0; idx < lookupIndices.length; idx++) {
+        var arrayIndex = lookupIndices[idx]; // 這是 dataValues 裡的 index
+        var ph = phonesToLookup[idx];        // 對應的電話
+        
+        if (membersMap[ph]) {
+          var member = membersMap[ph];
+          var newName = (member.memnam || member.name || '').trim();
+          
+          if (newName) {
+            nameValues[arrayIndex][0] = newName; // 更新陣列
+            batchUpdated++;
+          }
+        }
+      }
+
+      // 5. 只有當這一批次真的有資料變動時，才寫入 Spreadsheet
+      if (batchUpdated > 0) {
+        console.log('   - 寫入資料中... (更新 ' + batchUpdated + ' 筆)');
+        // 直接把整批 (包含沒變的和有變的) 寫回去，這樣最簡單且 API 消耗最少
+        nameRange.setValues(nameValues);
+        totalUpdatedCount += batchUpdated;
+      } else {
+        console.log('   - API 查無對應資料，無須寫入');
+      }
+      
+      SpreadsheetApp.flush();
+      // 批次間停留，避免連續打 API 被擋
+      if (startRow + BATCH_SIZE <= lastRow && BATCH_DELAY_MS > 0) {
+        console.log('   - 等待 ' + (BATCH_DELAY_MS / 1000) + ' 秒後繼續下一批...');
+        Utilities.sleep(BATCH_DELAY_MS);
+      }
+    }
+    // --- 分批迴圈結束 ---
+
+    console.timeEnd('TotalExecutionTime'); // [Log] 總時間
+    console.log('=== 執行完成 ===');
+    console.log('總共更新: ' + totalUpdatedCount + ' 筆資料');
+    
+    return { ok: true, updatedCount: totalUpdatedCount };
+
+  } catch (e) {
+    console.error('嚴重錯誤:', e);
+    return { ok: false, message: e.message };
+  }
+}
+
 /**
  * 一次性呼叫：建立「提交表單時」執行 onTipsFormSubmit 的觸發器。
  * 請在「與問卷連結的試算表」的擴充功能 → Apps Script 中執行此函式（或該試算表綁定的專案需有 TIPS_FORM_SS_ID = 該試算表 ID）。
@@ -529,7 +701,7 @@ function getLastMonthTipsConsolidatedForManager(managedStoreIds) {
     if (!sheet || sheet.getLastRow() < 2) {
       return { ok: true, sheetUrl: 'https://docs.google.com/spreadsheets/d/' + ssId + '/edit#gid=' + gid, startDate: startDate, endDate: endDate, rowCount: 0 };
     }
-    var lastCol = Math.max(sheet.getLastColumn(), 19);
+    var lastCol = Math.max(sheet.getLastColumn(), 20);
     var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
     var header = data[0] || [];
     var storIdCol = -1;
@@ -572,8 +744,8 @@ var TIPS_CONSOLIDATED_REMARK_HEADER = '消費備註';
 var TIPS_CONSOLIDATED_REMARK_COL_O = 14;
 /** 小費統整表欄位：消費店家storId（S 欄，管理者模式用） */
 var TIPS_CONSOLIDATED_STORID_HEADER = '消費店家storId';
-/** 上月小費文字輸出只顯示這些欄（試算表欄位 A=0,B=1,...,R=17）：A,B,E,F,G,H,I,J,K,N,O,Q,R,L */
-var TIPS_LAST_MONTH_DISPLAY_COLS = [0, 1, 4, 5, 6, 7, 8, 9, 10, 13, 14, 16, 17, 11];
+/** 上月小費產出欄位順序（來源 gid=1727178779，表頭含 T=姓名）：A(0)時間，T(19)姓名，B(1)手機，L(11),R(17),N(13),O(14),P(15),E(4),F(5),G(6),K(10),H(7),I(8),J(9)。EFGK 變色保留。 */
+var TIPS_LAST_MONTH_DISPLAY_COLS = [0, 19, 1, 11, 17, 13, 14, 15, 4, 5, 6, 10, 7, 8, 9];
 
 /** 上月小費請求紀錄表：同試算表、不同工作表，gid=1792957916。欄位：id, 店家/使用者, 月份, url, 請求時間, 完成時間, 備註。備註格式 YYYYMM_小費_userId 供同月同人重用。 */
 var TIPS_REQUEST_LOG_SS_ID = '1GH2XbihFIY0AX8SMF9Tk6igrVKPpA_vMJVlkDkJjpe4';
@@ -607,7 +779,7 @@ function getLastMonthTipsData(options) {
       if (Number(sheets[i].getSheetId()) === Number(gid)) { sheet = sheets[i]; break; }
     }
     if (!sheet || sheet.getLastRow() < 2) return { ok: true, headerRow: [], rows: [], startDate: startDate, endDate: endDate, rowCount: 0, monthStr: monthStr, monthKey: monthKey };
-    var lastCol = Math.max(sheet.getLastColumn(), 19);
+    var lastCol = Math.max(sheet.getLastColumn(), 20);
     var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
     var header = data[0] || [];
     var storIdCol = -1, remarkCol = -1;
@@ -646,7 +818,7 @@ function getLastMonthTipsData(options) {
     var headerRow = [];
     for (var j = 0; j < displayCols.length; j++) {
       var c = displayCols[j];
-      headerRow.push(c < header.length && header[c] != null ? String(header[c]) : '');
+      headerRow.push(c === 19 ? '姓名' : (c === 1 ? '手機' : (c < header.length && header[c] != null ? String(header[c]) : '')));
     }
     var outRows = [];
     for (var ri = 0; ri < rows.length; ri++) {
@@ -704,7 +876,7 @@ function getLastMonthTipsAsText(options) {
     if (!sheet || sheet.getLastRow() < 2) {
       return { ok: true, text: '上個月小費 ' + startDate + ' ~ ' + endDate + '\n（無資料）', startDate: startDate, endDate: endDate, rowCount: 0 };
     }
-    var lastCol = Math.max(sheet.getLastColumn(), 19);
+    var lastCol = Math.max(sheet.getLastColumn(), 20);
     var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
     var header = data[0] || [];
     var storIdCol = -1;
@@ -750,7 +922,7 @@ function getLastMonthTipsAsText(options) {
     var headerLine = [];
     for (var j = 0; j < displayCols.length; j++) {
       var c = displayCols[j];
-      headerLine.push(c < header.length && header[c] != null ? String(header[c]) : '');
+      headerLine.push(c === 19 ? '姓名' : (c === 1 ? '手機' : (c < header.length && header[c] != null ? String(header[c]) : '')));
     }
     lines.push(headerLine.join('\t'));
     for (var ri = 0; ri < rows.length; ri++) {
@@ -770,10 +942,33 @@ function getLastMonthTipsAsText(options) {
 }
 
 /**
+ * 將試算表設為「可透過連結檢視」：先試「網際網路上的所有人」，失敗則試「知道連結的使用者」。
+ * @param {string} fileId - 試算表檔案 ID
+ * @returns {string|null} 成功回傳 null；失敗回傳提示文字（供呼叫端顯示給使用者）
+ */
+function setLastMonthTipsSheetSharing(fileId) {
+  if (!fileId) return '缺少檔案 ID';
+  var file = DriveApp.getFileById(fileId);
+  try {
+    file.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.VIEW);
+    return null;
+  } catch (e1) {
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      return null;
+    } catch (e2) {
+      var msg = (e1 && e1.message) ? e1.message : String(e1);
+      console.warn('[上月小費] setSharing 失敗:', msg);
+      return '無法自動開放連結。請手動：試算表右上「共用」→ 一般存取權 → 改為「知道連結的使用者」或「網際網路上的所有人」。';
+    }
+  }
+}
+
+/**
  * 上月小費報表：有則回傳既有試算表連結（備註 YYYYMM_小費_userId），無則產出新試算表並寫入請求紀錄表。
  * 請求紀錄表：同試算表 ID、工作表 gid=1792957916，欄位 id, 店家/使用者, 月份, url, 請求時間, 完成時間, 備註。
  * @param {{ managedStoreIds?: string[], userId: string }} options - userId 為 LINE userId
- * @returns {{ ok: boolean, url?: string, cached?: boolean, message?: string, rowCount?: number }}
+ * @returns {{ ok: boolean, url?: string, cached?: boolean, message?: string, rowCount?: number, shareWarning?: string }}
  */
 function getOrCreateLastMonthTipsSheet(options) {
   var userId = (options && options.userId != null) ? String(options.userId).trim() : '';
@@ -807,7 +1002,14 @@ function getOrCreateLastMonthTipsSheet(options) {
         var rowRemark = (logData[r][colRemark] != null) ? String(logData[r][colRemark]).trim() : '';
         if (rowRemark === remarkKey) {
           var existingUrl = (logData[r][colUrl] != null) ? String(logData[r][colUrl]).trim() : '';
-          if (existingUrl) return { ok: true, url: existingUrl, cached: true };
+          if (existingUrl) {
+            var shareWarning = null;
+            var fileIdMatch = existingUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            if (fileIdMatch && fileIdMatch[1]) {
+              shareWarning = setLastMonthTipsSheetSharing(fileIdMatch[1]);
+            }
+            return { ok: true, url: existingUrl, cached: true, shareWarning: shareWarning || undefined };
+          }
         }
       }
     }
@@ -822,14 +1024,14 @@ function getOrCreateLastMonthTipsSheet(options) {
       var numRows = 1 + rows.length;
       var values = [headerRow].concat(rows);
       newSheet.getRange(1, 1, numRows, numCols).setValues(values);
-      if (numRows >= 2 && numCols >= 5) {
+      if (numRows >= 2 && numCols >= 12) {
         try {
           var existingRules = newSheet.getConditionalFormatRules();
-          var colLetters = ['C', 'D', 'E'];
+          var colLetters = ['I', 'J', 'K', 'L'];
           var colors = { 1: '#ffc0cb', 2: '#ffff00', 3: '#90ee90' };
-          for (var ci = 0; ci < 3; ci++) {
+          for (var ci = 0; ci < 4; ci++) {
             var colLetter = colLetters[ci];
-            var col1Based = 3 + ci;
+            var col1Based = 9 + ci;
             var range = newSheet.getRange(2, col1Based, numRows, col1Based);
             for (var val = 1; val <= 3; val++) {
               var formula = '=OR(' + colLetter + '2=' + val + ',' + colLetter + '2="' + val + '")';
@@ -840,15 +1042,13 @@ function getOrCreateLastMonthTipsSheet(options) {
         } catch (fmtErr) {}
       }
     }
-    try {
-      DriveApp.getFileById(newSs.getId()).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (shareErr) {}
+    var shareWarning = setLastMonthTipsSheetSharing(newSs.getId());
     var newUrl = 'https://docs.google.com/spreadsheets/d/' + newSs.getId() + '/edit';
     var now = new Date();
     var timeStr = Utilities.formatDate(now, TZ_TIPS, 'yyyy-MM-dd HH:mm:ss');
     var requestId = Utilities.getUuid();
     logSheet.appendRow([requestId, userId, monthStr, newUrl, timeStr, timeStr, remarkKey]);
-    return { ok: true, url: newUrl, cached: false, rowCount: dataResult.rowCount };
+    return { ok: true, url: newUrl, cached: false, rowCount: dataResult.rowCount, shareWarning: shareWarning || undefined };
   } catch (e) {
     return { ok: false, message: (e && e.message) ? e.message : String(e) };
   }

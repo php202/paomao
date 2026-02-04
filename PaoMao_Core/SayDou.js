@@ -127,13 +127,20 @@ function getMemApiBatch(phones) {
       var resp = responses[j];
       try {
         var code = resp.getResponseCode();
-        var json = JSON.parse(resp.getContentText() || '{}');
-        if (code === 200 && json && json.data && json.data.items && json.data.items.length > 0) {
+        var content = resp.getContentText();
+        var json = JSON.parse(content || '{}');
+
+        // 參照 getMemApi：若非 200 視為失敗
+        if (code !== 200) {
+          // Logger.log('getMemApiBatch error (Code ' + code + '): ' + phone);
+          out[phone] = null;
+        } else if (json && json.data && json.data.items && json.data.items.length > 0) {
           out[phone] = json.data.items[0];
         } else {
           out[phone] = null;
         }
       } catch (err) {
+        Logger.log('getMemApiBatch exception for ' + phone + ': ' + err);
         out[phone] = null;
       }
     }

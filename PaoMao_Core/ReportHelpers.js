@@ -416,7 +416,7 @@ function filterByStoreIds(byStore, managedStoreIds) {
 
 function getReportTextForKeyword(handler, options) {
   // 暫時關閉：報告關鍵字功能（昨日報告、本月報告、上月小費文字版等）不產出內容
-  return { text: "此報告功能暫時關閉，請稍後再試或聯繫管理員。" };
+  return;
 
   options = options || {};
   var config = (typeof getCoreConfig === "function") ? getCoreConfig() : {};

@@ -12,6 +12,13 @@ function sendLocationRequest(replyToken, userId) {
   const uuid = Utilities.getUuid();
   const uri = `${CHECK_IN_LINK}?userId=${encodeURIComponent(userId)}&uuid=${encodeURIComponent(uuid)}`;
 
+  // C. 每月 1–7 號顯示「上月小費」按鈕，點擊後會送出「上月小費」取得小費報表
+  const actions = [{ "type": "uri", "label": "📍 點擊開啟打卡", "uri": uri }];
+  const dayOfMonth = new Date().getDate();
+  if (dayOfMonth >= 1 && dayOfMonth <= 7) {
+    actions.push({ "type": "message", "label": "上月小費", "text": "上月小費" });
+  }
+
   // D. 建構訊息 (UI)
   const message = {
     "type": "template",
@@ -20,7 +27,7 @@ function sendLocationRequest(replyToken, userId) {
       "type": "buttons",
       "title": "打卡驗證",
       "text": "請點擊下方按鈕開啟打卡頁面。",
-      "actions": [{ "type": "uri", "label": "📍 點擊開啟打卡", "uri": uri }]
+      "actions": actions
     }
   };
 

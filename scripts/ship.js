@@ -65,13 +65,20 @@ if (filterNames.length > 0) {
 }
 
 console.log('GAS 專案數:', dirs.length);
-for (const dir of dirs) {
+const delayMs = 15000; // 專案間隔 15 秒，降低「Resource has been exhausted」配額錯誤
+for (let i = 0; i < dirs.length; i++) {
+  if (i > 0) {
+    const sec = Math.round(delayMs / 1000);
+    console.log('\n等待', sec, '秒後再部署下一個專案（避免配額用盡）…');
+    try { execSync('sleep ' + sec, { stdio: 'inherit' }); } catch (_) { /* sleep 僅 Unix/Mac 支援 */ }
+  }
+  const dir = dirs[i];
   const cwd = path.join(gasRoot, dir);
   console.log('\n---', dir, '---');
   try {
     execSync('npm run ship', { cwd, stdio: 'inherit' });
   } catch (e) {
-    console.error(dir, 'npm run ship 失敗（請確認該專案 package.json 的 deploy 已填寫既有部署 ID）');
+    console.error(dir, 'npm run ship 失敗（若為 Resource has been exhausted，為 Google 配額限制，請稍後重試或只 ship 單一專案）');
     process.exitCode = 1;
   }
 }
