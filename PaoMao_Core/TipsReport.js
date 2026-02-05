@@ -895,6 +895,24 @@ function getLastMonthTipsData(options) {
   var endDate = Utilities.formatDate(new Date(now.getFullYear(), now.getMonth(), 0), TZ_TIPS, 'yyyy-MM-dd');
   var monthStr = startDate.slice(0, 7);
   var monthKey = startDate.slice(0, 4) + startDate.slice(5, 7);
+  function inLastMonthRange(value) {
+    if (value == null || value === "") return false;
+    var dt = null;
+    if (value instanceof Date || (typeof value === "object" && typeof value.getTime === "function")) {
+      dt = new Date(value.getTime ? value.getTime() : value);
+    } else {
+      var s = String(value).trim();
+      if (!s) return false;
+      dt = parseFormTimestamp(s);
+      if (!dt) {
+        var d = new Date(s);
+        if (!isNaN(d.getTime())) dt = d;
+      }
+    }
+    if (!dt || isNaN(dt.getTime())) return false;
+    var dStr = Utilities.formatDate(dt, TZ_TIPS, "yyyy-MM-dd");
+    return dStr >= startDate && dStr <= endDate;
+  }
   try {
     var ss = SpreadsheetApp.openById(ssId);
     var sheets = ss.getSheets();
@@ -904,7 +922,9 @@ function getLastMonthTipsData(options) {
     }
     if (!sheet || sheet.getLastRow() < 2) return { ok: true, headerRow: [], rows: [], startDate: startDate, endDate: endDate, rowCount: 0, monthStr: monthStr, monthKey: monthKey };
     var lastCol = Math.max(sheet.getLastColumn(), 20);
-    var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+    var dataRange = sheet.getRange(1, 1, sheet.getLastRow(), lastCol);
+    var data = dataRange.getValues();
+    var backgrounds = dataRange.getBackgrounds();
     var header = data[0] || [];
     var storIdCol = -1, remarkCol = -1;
     for (var c = 0; c < header.length; c++) {
@@ -918,6 +938,7 @@ function getLastMonthTipsData(options) {
     var entries = [];
     for (var r = 1; r < data.length; r++) {
       var row = data[r];
+      if (!inLastMonthRange(row[0])) continue;
       if (managedStoreIds.length > 0) {
         var sid = (row[storIdCol] != null) ? String(row[storIdCol]).trim() : '';
         var match = false;
@@ -991,6 +1012,24 @@ function getLastMonthTipsAsText(options) {
   var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   var startDate = Utilities.formatDate(lastMonth, TZ_TIPS, 'yyyy-MM-dd');
   var endDate = Utilities.formatDate(new Date(now.getFullYear(), now.getMonth(), 0), TZ_TIPS, 'yyyy-MM-dd');
+  function inLastMonthRange(value) {
+    if (value == null || value === "") return false;
+    var dt = null;
+    if (value instanceof Date || (typeof value === "object" && typeof value.getTime === "function")) {
+      dt = new Date(value.getTime ? value.getTime() : value);
+    } else {
+      var s = String(value).trim();
+      if (!s) return false;
+      dt = parseFormTimestamp(s);
+      if (!dt) {
+        var d = new Date(s);
+        if (!isNaN(d.getTime())) dt = d;
+      }
+    }
+    if (!dt || isNaN(dt.getTime())) return false;
+    var dStr = Utilities.formatDate(dt, TZ_TIPS, "yyyy-MM-dd");
+    return dStr >= startDate && dStr <= endDate;
+  }
   try {
     var ss = SpreadsheetApp.openById(ssId);
     var sheets = ss.getSheets();
@@ -1020,6 +1059,7 @@ function getLastMonthTipsAsText(options) {
     var rows = [];
     for (var r = 1; r < data.length; r++) {
       var row = data[r];
+      if (!inLastMonthRange(row[0])) continue;
       if (managedStoreIds.length > 0) {
         var sid = (row[storIdCol] != null) ? String(row[storIdCol]).trim() : '';
         var match = false;
