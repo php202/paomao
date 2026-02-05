@@ -13,6 +13,7 @@ const token = getBearerTokenFromSheet();
 function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, options) {
   options = options || {};
   // 呼叫端可傳入 token（例如各店訊息一覽表 Web App 的 CoreApi.getBearerToken），否則用腳本載入時的 token
+  console.log('[Core.findAvailableSlots] v20260205-1');
   const tokenToUse = (options.token != null && options.token !== "") ? options.token : token;
 
   // 1. 參數與時區設定
@@ -30,11 +31,22 @@ function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, 
     // 3. 取得預約與排休資料
     const { reservations, dutyoffs } = fetchReservationsAndOffs(sayId, startDate, endDate, tokenToUse);
 
-    // 3.1 將預約／排休中出現的該店員工也納入產能（例如每刻01/02 若 baseData 未回傳在職仍算可預約人力）
+    // 3.1 將「非櫃檯」的預約／排休員工也納入產能（例如每刻01/02 若 baseData 未回傳在職仍算可預約人力）
     const sayIdStr = String(sayId);
     const addStaffId = (set, id) => { if (id != null && Number(id) > 0) set.add(Number(id)); };
-    (reservations || []).forEach(r => { if (r.storid != null && String(r.storid) === sayIdStr && r.usrsid) addStaffId(validStaffSet, r.usrsid); });
-    (dutyoffs || []).forEach(d => { if (d.storid != null && String(d.storid) === sayIdStr && d.usrsid) addStaffId(validStaffSet, d.usrsid); });
+    (reservations || []).forEach(r => {
+      if (r.storid == null || String(r.storid) !== sayIdStr || !r.usrsid) return;
+      // 盡量從 r.usrs 判斷是否為櫃檯人員，若無 usrs 則用 r 本身的欄位（usrnam/usrcod）
+      var staffObj = r.usrs || r;
+      if (isCounterStaff(staffObj)) return; // 櫃檯不算產能
+      addStaffId(validStaffSet, r.usrsid);
+    });
+    // dutyoffs 僅納入「非櫃檯」員工，櫃檯排休完全不影響產能
+    (dutyoffs || []).forEach(d => {
+      if (d.storid == null || String(d.storid) !== sayIdStr || !d.usrsid) return;
+      if (isCounterStaffDutyoff(d)) return; // 櫃檯不算產能
+      addStaffId(validStaffSet, d.usrsid);
+    });
     const totalStaff = (validStaffSet && validStaffSet.size > 0) ? validStaffSet.size : 4; // 預設產能
 
     // 4. 準備計算
@@ -73,12 +85,13 @@ function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, 
           if (checkStartMin > lastBookingMin) return;
           if (checkEndMin > 1440) return; // 24:00
 
-          // (B) 過濾過去時間 (若是今天)
-          if (dateString === startDate) { 
-             const now = new Date();
-             const nowMin = now.getHours() * 60 + now.getMinutes();
-             // 緩衝: 現在時間 + 30分鐘後的時段才開放
-             if (checkStartMin < (nowMin + 30)) return;
+          // (B) 過濾過去時間（僅限「今天」）
+          const todayStr = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
+          if (dateString === todayStr) { 
+            const now = new Date();
+            const nowMin = now.getHours() * 60 + now.getMinutes();
+            // 緩衝: 現在時間 + 30分鐘後的時段才開放
+            if (checkStartMin < (nowMin + 30)) return;
           }
 
           // (C) 計算「實際忙碌的員工」集合，改以人頭而非事件數量，確保與多人預約邏輯一致
@@ -98,8 +111,9 @@ function findAvailableSlots(sayId, startDate, endDate, needPeople, durationMin, 
             }
           }
 
-          // C-2. 檢查排休占用
+          // C-2. 檢查排休占用（櫃檯的休息不計入，只算正規人力的排休）
           for (const d of dailyDutyoffs) {
+            if (isCounterStaffDutyoff(d)) continue;
             const du = d.usrsid != null ? Number(d.usrsid) : 0;
             if (validStaffSet.size > 0 && du > 0 && !validStaffSet.has(du)) continue;
             
@@ -169,18 +183,19 @@ function isCounterStaff(s) {
   return cod.indexOf("櫃檯") >= 0 || nam.indexOf("櫃檯") >= 0;
 }
 
+/** 排休紀錄是否為櫃檯人員（API 回傳的 dutyoff 有 usrnam，用於查詢空位不計入櫃檯休息） */
+function isCounterStaffDutyoff(d) {
+  var nam = (d && d.usrnam) ? String(d.usrnam) : "";
+  return nam.indexOf("櫃檯") >= 0;
+}
+
 /**
  * 取得 baseData 完整回應（快取 6 小時，全專案共用）
  * @param {string} token - API Token
  * @return {{ status: boolean, positions: Array, stores: Array, staffs: Array }} 或 null
  */
 function getBaseDataCached(token) {
-  var cache = CacheService.getScriptCache();
-  var cacheKey = "BASE_DATA_V1";
-  var raw = cache.get(cacheKey);
-  if (raw) {
-    try { return JSON.parse(raw); } catch (e) { return null; }
-  }
+  // 先關閉 baseData 的快取，每次直接打 API 取得最新資料
   try {
     var response = UrlFetchApp.fetch(BASE_DATA_API_URL, {
       method: "get",
@@ -188,10 +203,7 @@ function getBaseDataCached(token) {
       muteHttpExceptions: true
     });
     var json = JSON.parse(response.getContentText());
-    if (json && json.status === true) {
-      cache.put(cacheKey, JSON.stringify(json), 21600); // 6hr
-      return json;
-    }
+    if (json && json.status === true) return json;
     return null;
   } catch (e) {
     console.error("[Core] getBaseDataCached Error: " + e);
@@ -206,21 +218,29 @@ function getBaseDataCached(token) {
  * @return {Set<number>} 有效員工 ID 集合
  */
 function getStoreCapacityIds(sayId, token) {
-  var cache = CacheService.getScriptCache();
-  var storeKey = "STORE_STAFF_V1_" + String(sayId);
-  var cachedData = cache.get(storeKey);
-  if (cachedData) return new Set(JSON.parse(cachedData));
-
+  // 先關閉人力池快取，每次直接根據最新 baseData 計算
   var t = (token != null && token !== "") ? token : getBearerTokenFromSheet();
   if (!t) return new Set();
   var json = getBaseDataCached(t);
   var validIds = [];
+  var sayIdStr = String(sayId);
+
+  // 額外補強：某些店家的「可接客員工」在 baseData 裡沒有正確標示 store，
+  // 可以在這裡用手動表方式補上（非櫃檯人員的 usrsid）
+  // 使用方式：把實際的 SayDou 店家 ID 當 key，value 放需要一併算入產能的 usrsid 陣列。
+  // 例如： "4229": [11111, 22222]  // 內湖01、內湖02
+  var EXTRA_STORE_STAFF = {
+    // TODO: 請填入實際需要補強的店家與員工 ID
+    "4229": [21617, 22569] // 內湖01, 內湖02
+    // "1437": [/* 光明01 usrsid */, /* 光明02 usrsid */]
+  };
 
   if (json && json.staffs && json.staffs[0]) {
     var categories = json.staffs[0];
     Object.keys(categories).forEach(function (role) {
       categories[role].forEach(function (s) {
-        if (String(s.msstor) !== String(sayId)) return;
+        var storeMatch = (s.msstor != null && String(s.msstor) === sayIdStr) || (s.storid != null && String(s.storid) === sayIdStr);
+        if (!storeMatch) return;
         if (s.status !== "on" || s.usrsid == null || Number(s.usrsid) <= 0) return;
         if (isCounterStaff(s)) return; // 排除櫃檯，只算正規人力
         validIds.push(Number(s.usrsid));
@@ -228,8 +248,35 @@ function getStoreCapacityIds(sayId, token) {
     });
   }
 
-  if (validIds.length > 0) cache.put(storeKey, JSON.stringify(validIds), 21600);
+  // 把手動補強的人員 ID 也併入 validIds（避免重複）
+  var extra = EXTRA_STORE_STAFF[sayIdStr];
+  if (Array.isArray(extra)) {
+    extra.forEach(function (id) {
+      var n = Number(id);
+      if (n > 0 && validIds.indexOf(n) === -1) validIds.push(n);
+    });
+  }
+
   return new Set(validIds);
+}
+
+/**
+ * Debug 用：在 GAS 後台直接執行，檢查某店家、某日期區間的可預約結果與人力。
+ * 使用方式：打開指令碼編輯器，在函式列表選擇 runFindAvailableSlotsDebug 後執行，然後看日誌。
+ */
+function runFindAvailableSlotsDebug() {
+  // 請依實際測試需求修改下列三個參數
+  var sayId = "4229";              // 店家 SayDou ID，例如 內湖店 = 4229
+  var startDate = "2026-02-24";    // 起始日期 (yyyy-MM-dd)
+  var endDate = "2026-02-24";      // 結束日期 (yyyy-MM-dd)
+
+  var result = findAvailableSlots(sayId, startDate, endDate, 1, 90, {
+    weekDays: [0,1,2,3,4,5,6],
+    timeStart: "11:00",
+    timeEnd: "21:00"
+  });
+
+  Logger.log("[runFindAvailableSlotsDebug] result = %s", JSON.stringify(result, null, 2));
 }
 /**
  * 取得指定範圍內的預約與排休資料 (SayDou API)

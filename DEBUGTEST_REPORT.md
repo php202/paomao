@@ -75,3 +75,16 @@ clasp run runDebugTest
 ```
 
 路徑若少引號會出現 `unmatched "` 或指令錯誤。
+
+---
+
+## 5. 特別紀錄：查詢空位時間修正（2026-02-05）
+
+- **問題**：查詢未來日期（例如 2026-02-24）時仍顯示「（無）」。
+- **根因**：`findAvailableSlots` 用 `dateString === startDate` 判定「今天」，導致未來日期被誤當今天，進而套用「過去時間過濾」把時段清空。
+- **修正**：改為只在 `dateString === todayStr` 時過濾過去時間。
+- **同步調整**：
+  - 櫃檯人員不計入產能、其排休不計入忙碌。
+  - 關閉 baseData 與人力池快取（每次即時抓最新資料）。
+  - 新增 `runFindAvailableSlotsDebug` 便於後台驗證。
+  - 新增 `EXTRA_STORE_STAFF` 以手動補強個別店家人力（例如內湖店 4229 補 21617/22569）。

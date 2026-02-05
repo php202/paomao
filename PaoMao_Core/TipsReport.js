@@ -172,7 +172,39 @@ var TIPS_SYNC_LAST_TIMESTAMP_KEY = 'TIPS_SYNC_LAST_TIMESTAMP';
 var TIPS_SYNC_LAST_PHONE_KEY = 'TIPS_SYNC_LAST_PHONE';
 
 /**
- * 每月 2 號執行：把上個月問卷 A:M 拉出，對每筆手機找最近一筆消費與儲值金，有抓到一筆就寫入小費統整表；進度存 Script 屬性，下次從上次位置繼續。
+ * 從小費統整表 A/B 欄找出最後一筆（A=時間, B=手機）
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @returns {{ timestampText: string, timestampMs: number|null, phone: string }|null}
+ */
+function getLastSyncedFromConsolidated(sheet) {
+  if (!sheet) return null;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  var lookback = Math.min(200, lastRow - 1);
+  var startRow = lastRow - lookback + 1;
+  var values = sheet.getRange(startRow, 1, lookback, 2).getValues();
+  for (var i = values.length - 1; i >= 0; i--) {
+    var ts = values[i][0];
+    var ph = values[i][1];
+    if (ts == null || String(ts).trim() === '') continue;
+    var phoneNorm = normalizePhoneForTips((ph != null) ? String(ph).trim() : '');
+    if (!phoneNorm) continue;
+    var tsMs = null;
+    if (Object.prototype.toString.call(ts) === '[object Date]' && !isNaN(ts.getTime())) {
+      tsMs = ts.getTime();
+    }
+    var tsText = (ts != null) ? String(ts).trim() : '';
+    if (!tsMs && tsText) {
+      var dt = parseFormTimestamp(tsText);
+      if (dt) tsMs = dt.getTime();
+    }
+    return { timestampText: tsText, timestampMs: tsMs, phone: phoneNorm };
+  }
+  return null;
+}
+
+/**
+ * 追蹤問卷同步：從上一筆未新增到的問卷繼續，抓到今天為止；對每筆手機找最近一筆消費與儲值金，有抓到一筆就寫入小費統整表；進度存 Script 屬性，下次從上次位置繼續。
  * @returns {{ ok: boolean, message?: string, startDate?: string, endDate?: string, rowCount?: number, resumedFrom?: number, nextIndex?: number }}
  */
 function syncLastMonthQuestionnaireToConsolidated() {
@@ -182,52 +214,12 @@ function syncLastMonthQuestionnaireToConsolidated() {
     return { ok: false, message: '未設定小費統整表試算表 TIPS_CONSOLIDATED_SS_ID（來源需拉對）' };
   }
   var now = new Date();
-  var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  var startDate = Utilities.formatDate(lastMonth, TZ_TIPS, 'yyyy-MM-dd');
-  var endDate = Utilities.formatDate(new Date(now.getFullYear(), now.getMonth(), 0), TZ_TIPS, 'yyyy-MM-dd');
-  var monthKey = startDate.slice(0, 7);
   var props = PropertiesService.getScriptProperties();
   var savedMonth = props.getProperty(TIPS_SYNC_MONTH_KEY) || '';
   var lastIndex = parseInt(props.getProperty(TIPS_SYNC_LAST_INDEX_KEY) || '0', 10);
   var lastTimestamp = props.getProperty(TIPS_SYNC_LAST_TIMESTAMP_KEY) || '';
   var lastPhone = props.getProperty(TIPS_SYNC_LAST_PHONE_KEY) || '';
   if (lastIndex < 0) lastIndex = 0;
-
-  var form = getTipsFormRowsWithRawAM(startDate, endDate);
-  if (!form.rows || form.rows.length === 0) {
-    console.warn('[TipsReport] 上個月問卷無資料 ' + startDate + '~' + endDate);
-    if (savedMonth === monthKey) {
-      props.deleteProperty(TIPS_SYNC_LAST_INDEX_KEY);
-      props.deleteProperty(TIPS_SYNC_LAST_TIMESTAMP_KEY);
-      props.deleteProperty(TIPS_SYNC_LAST_PHONE_KEY);
-    }
-    return { ok: true, startDate: startDate, endDate: endDate, rowCount: 0 };
-  }
-  var startIndex = lastIndex;
-  if (savedMonth === monthKey && lastIndex > 0 && (lastTimestamp || lastPhone)) {
-    for (var si = 0; si < form.rows.length; si++) {
-      var rowTs = (form.rows[si].obj['時間戳記'] != null) ? String(form.rows[si].obj['時間戳記']).trim() : '';
-      var rowPh = normalizePhoneForTips((form.rows[si].obj['您的手機號碼'] || '').trim());
-      if (rowTs === lastTimestamp && rowPh === lastPhone) {
-        startIndex = si + 1;
-        break;
-      }
-    }
-  }
-  if (savedMonth === monthKey && startIndex >= form.rows.length) {
-    return { ok: true, startDate: startDate, endDate: endDate, rowCount: 0, completed: true };
-  }
-
-  var getMemApiFn = typeof getMemApi === 'function' ? getMemApi : (typeof Core !== 'undefined' && Core.getMemApi ? Core.getMemApi : null);
-  var getMemApiBatchFn = typeof getMemApiBatch === 'function' ? getMemApiBatch : (typeof Core !== 'undefined' && Core.getMemApiBatch ? Core.getMemApiBatch : null);
-  var getTransactionsBatchFn = typeof getAllTransactionsByMembidBatch === 'function' ? getAllTransactionsByMembidBatch : (typeof Core !== 'undefined' && Core.getAllTransactionsByMembidBatch ? Core.getAllTransactionsByMembidBatch : null);
-  var findLatestFn = typeof findLatestConsumptionBefore === 'function' ? findLatestConsumptionBefore : (typeof Core !== 'undefined' && Core.findLatestConsumptionBefore ? Core.findLatestConsumptionBefore : null);
-  var findLatestFromListFn = typeof findLatestFromTransactionList === 'function' ? findLatestFromTransactionList : (typeof Core !== 'undefined' && Core.findLatestFromTransactionList ? Core.findLatestFromTransactionList : null);
-  if (!getMemApiFn || !findLatestFn) {
-    return { ok: false, message: 'getMemApi 或 findLatestConsumptionBefore 未定義' };
-  }
-
-  var headerRow = form.headerRow13.concat(['消費項目', '消費備註', '消費金額', '店家名稱', '儲值金餘額', '消費店家storId']);
   var ss, sheet;
   try {
     ss = SpreadsheetApp.openById(ssId);
@@ -246,17 +238,88 @@ function syncLastMonthQuestionnaireToConsolidated() {
     console.error('[TipsReport] sync 開啟試算表失敗:', e);
     return { ok: false, message: (e && e.message) ? e.message : String(e) };
   }
+  if (!lastTimestamp && !lastPhone) {
+    var lastFromSheet = getLastSyncedFromConsolidated(sheet);
+    if (lastFromSheet) {
+      lastTimestamp = lastFromSheet.timestampText || '';
+      lastPhone = lastFromSheet.phone || '';
+      if (lastTimestamp) props.setProperty(TIPS_SYNC_LAST_TIMESTAMP_KEY, lastTimestamp);
+      if (lastPhone) props.setProperty(TIPS_SYNC_LAST_PHONE_KEY, lastPhone);
+      props.setProperty(TIPS_SYNC_LAST_INDEX_KEY, '0');
+    }
+  }
+  var startDate = '';
+  var lastTimestampMs = null;
+  if (lastTimestamp) {
+    var lastTsDate = parseFormTimestamp(lastTimestamp);
+    if (lastTsDate) {
+      lastTimestampMs = lastTsDate.getTime();
+      startDate = Utilities.formatDate(lastTsDate, TZ_TIPS, 'yyyy-MM-dd');
+    }
+  }
+  if (!startDate && lastTimestampMs) {
+    startDate = Utilities.formatDate(new Date(lastTimestampMs), TZ_TIPS, 'yyyy-MM-dd');
+  }
+  if (!startDate && savedMonth) {
+    startDate = savedMonth + '-01';
+  }
+  if (!startDate) {
+    var defaultStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    startDate = Utilities.formatDate(defaultStart, TZ_TIPS, 'yyyy-MM-dd');
+  }
+  var endDate = Utilities.formatDate(now, TZ_TIPS, 'yyyy-MM-dd');
+  var monthKey = startDate.slice(0, 7);
+
+  var form = getTipsFormRowsWithRawAM(startDate, endDate);
+  if (!form.rows || form.rows.length === 0) {
+    console.warn('[TipsReport] 問卷無資料 ' + startDate + '~' + endDate);
+    if (savedMonth === monthKey && !(lastTimestamp || lastPhone)) {
+      props.deleteProperty(TIPS_SYNC_LAST_INDEX_KEY);
+      props.deleteProperty(TIPS_SYNC_LAST_TIMESTAMP_KEY);
+      props.deleteProperty(TIPS_SYNC_LAST_PHONE_KEY);
+    }
+    return { ok: true, startDate: startDate, endDate: endDate, rowCount: 0 };
+  }
+  var startIndex = lastIndex;
+  if (lastTimestamp || lastPhone || lastTimestampMs) {
+    for (var si = 0; si < form.rows.length; si++) {
+      var rowTs = (form.rows[si].obj['時間戳記'] != null) ? String(form.rows[si].obj['時間戳記']).trim() : '';
+      var rowPh = normalizePhoneForTips((form.rows[si].obj['您的手機號碼'] || '').trim());
+      if (lastPhone && rowPh !== lastPhone) continue;
+      var rowMs = null;
+      if (rowTs) {
+        var rowDt = parseFormTimestamp(rowTs);
+        if (rowDt) rowMs = rowDt.getTime();
+      }
+      if (lastTimestampMs && rowMs && rowMs === lastTimestampMs) {
+        startIndex = si + 1;
+        break;
+      }
+      if (!lastTimestampMs && lastTimestamp && rowTs === lastTimestamp) {
+        startIndex = si + 1;
+        break;
+      }
+    }
+  }
+  if (startIndex >= form.rows.length) {
+    return { ok: true, startDate: startDate, endDate: endDate, rowCount: 0, completed: true };
+  }
+
+  var getMemApiFn = typeof getMemApi === 'function' ? getMemApi : (typeof Core !== 'undefined' && Core.getMemApi ? Core.getMemApi : null);
+  var getMemApiBatchFn = typeof getMemApiBatch === 'function' ? getMemApiBatch : (typeof Core !== 'undefined' && Core.getMemApiBatch ? Core.getMemApiBatch : null);
+  var getTransactionsBatchFn = typeof getAllTransactionsByMembidBatch === 'function' ? getAllTransactionsByMembidBatch : (typeof Core !== 'undefined' && Core.getAllTransactionsByMembidBatch ? Core.getAllTransactionsByMembidBatch : null);
+  var findLatestFn = typeof findLatestConsumptionBefore === 'function' ? findLatestConsumptionBefore : (typeof Core !== 'undefined' && Core.findLatestConsumptionBefore ? Core.findLatestConsumptionBefore : null);
+  var findLatestFromListFn = typeof findLatestFromTransactionList === 'function' ? findLatestFromTransactionList : (typeof Core !== 'undefined' && Core.findLatestFromTransactionList ? Core.findLatestFromTransactionList : null);
+  if (!getMemApiFn || !findLatestFn) {
+    return { ok: false, message: 'getMemApi 或 findLatestConsumptionBefore 未定義' };
+  }
+
+  var headerRow = form.headerRow13.concat(['消費項目', '消費備註', '消費金額', '店家名稱', '儲值金餘額', '消費店家storId']);
 
   if (savedMonth !== monthKey) {
-    sheet.clear();
-    sheet.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
     props.setProperty(TIPS_SYNC_MONTH_KEY, monthKey);
-    startIndex = 0;
-    props.setProperty(TIPS_SYNC_LAST_INDEX_KEY, '0');
-    props.deleteProperty(TIPS_SYNC_LAST_TIMESTAMP_KEY);
-    props.deleteProperty(TIPS_SYNC_LAST_PHONE_KEY);
-  } else if (sheet.getLastRow() <= 1) {
-    sheet.clear();
+  }
+  if (sheet.getLastRow() < 1) {
     sheet.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
     startIndex = 0;
     props.setProperty(TIPS_SYNC_LAST_INDEX_KEY, '0');
@@ -366,8 +429,6 @@ function syncLastMonthQuestionnaireToConsolidated() {
   }
   if (completed) {
     props.setProperty(TIPS_SYNC_LAST_INDEX_KEY, String(form.rows.length));
-    props.deleteProperty(TIPS_SYNC_LAST_TIMESTAMP_KEY);
-    props.deleteProperty(TIPS_SYNC_LAST_PHONE_KEY);
   }
   return {
     ok: true,
@@ -393,12 +454,18 @@ var TIPS_FORM_HEADER_13 = TIPS_FORM_KEYS.slice(0, 13);
 function syncSingleTipsResponseToConsolidated(obj, rawRow) {
   var ssId = (typeof TIPS_CONSOLIDATED_SS_ID !== 'undefined' && TIPS_CONSOLIDATED_SS_ID) ? String(TIPS_CONSOLIDATED_SS_ID).trim() : '';
   var gid = typeof TIPS_CONSOLIDATED_SHEET_GID !== 'undefined' ? TIPS_CONSOLIDATED_SHEET_GID : 1727178779;
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:407',message:'syncSingle entry',data:{hasObj:!!obj,rawLen:rawRow?rawRow.length:0,ssIdSet:!!ssId,gid:gid},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2'})}).catch(()=>{});
+  // #endregion
   if (!ssId) {
     return { ok: false, message: '未設定小費統整表試算表 TIPS_CONSOLIDATED_SS_ID（來源需拉對）' };
   }
   var getMemApiFn = typeof getMemApi === 'function' ? getMemApi : (typeof Core !== 'undefined' && Core.getMemApi ? Core.getMemApi : null);
   var findLatestFn = typeof findLatestConsumptionBefore === 'function' ? findLatestConsumptionBefore : (typeof Core !== 'undefined' && Core.findLatestConsumptionBefore ? Core.findLatestConsumptionBefore : null);
   if (!getMemApiFn || !findLatestFn) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:415',message:'syncSingle missing core functions',data:{hasGetMemApi:!!getMemApiFn,hasFindLatest:!!findLatestFn},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
     return { ok: false, message: 'getMemApi 或 findLatestConsumptionBefore 未定義' };
   }
   var sheet;
@@ -412,7 +479,12 @@ function syncSingleTipsResponseToConsolidated(obj, rawRow) {
         break;
       }
     }
-    if (!sheet) return { ok: false, message: '找不到小費統整表 gid=' + gid };
+    if (!sheet) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:428',message:'syncSingle sheet not found',data:{gid:gid},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      return { ok: false, message: '找不到小費統整表 gid=' + gid };
+    }
   } catch (e) {
     return { ok: false, message: (e && e.message) ? e.message : String(e) };
   }
@@ -423,8 +495,14 @@ function syncSingleTipsResponseToConsolidated(obj, rawRow) {
   var phone = normalizePhoneForTips((obj['您的手機號碼'] || '').trim());
   var qtTime = parseFormTimestamp(obj['時間戳記']);
   var qtMs = qtTime ? qtTime.getTime() : 0;
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:438',message:'syncSingle lookup inputs',data:{phoneEmpty:!phone,hasQtMs:!!qtMs},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4'})}).catch(()=>{});
+  // #endregion
   var member = phone ? getMemApiFn(phone) : null;
   var consumption = member && member.membid && qtMs ? findLatestFn(member.membid, qtMs) : null;
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:441',message:'syncSingle lookup results',data:{memberFound:!!member,hasMembid:!!(member&&member.membid),consumptionFound:!!consumption},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4'})}).catch(()=>{});
+  // #endregion
   var itemsText = '';
   var remarkText = '';
   var amount = '';
@@ -448,10 +526,32 @@ function syncSingleTipsResponseToConsolidated(obj, rawRow) {
     itemsText = names.join('、');
     amount = String(sum);
   }
+  var consumptionTimeText = '';
+  var intervalDays = null;
+  if (consumption && qtMs) {
+    var consTs = consumption.rectim || consumption.cretim || '';
+    var consMs = null;
+    if (consTs) {
+      var consDate = new Date(consTs);
+      if (!isNaN(consDate.getTime())) {
+        consMs = consDate.getTime();
+        consumptionTimeText = Utilities.formatDate(consDate, TZ_TIPS, 'yyyy-MM-dd HH:mm');
+      }
+    }
+    if (consMs != null) {
+      intervalDays = Math.floor((qtMs - consMs) / 86400000);
+    }
+  }
+  var intervalText = (intervalDays != null && !isNaN(intervalDays)) ? (String(intervalDays) + '天') : '';
+  var itemsCombined = [consumptionTimeText, intervalText, itemsText].filter(function (s) { return s && String(s).trim() !== ''; }).join(' | ');
   var row13 = (rawRow && rawRow.length >= 13) ? rawRow.slice(0, 13) : [];
   while (row13.length < 13) row13.push('');
-  var outRow = row13.concat([itemsText, remarkText, amount, storeName, stcash, storId]);
-  sheet.appendRow(outRow);
+  var outRow = row13.concat([itemsCombined, remarkText, amount, storeName, stcash, storId]);
+  var writeRow = sheet.getLastRow() + 1;
+  sheet.getRange(writeRow, 1, 1, outRow.length).setValues([outRow]);
+  if (intervalDays != null && intervalDays > 10) {
+    sheet.getRange(writeRow, 14, 1, 1).setBackground('#ff0000');
+  }
   return { ok: true };
 }
 
@@ -702,7 +802,9 @@ function getLastMonthTipsConsolidatedForManager(managedStoreIds) {
       return { ok: true, sheetUrl: 'https://docs.google.com/spreadsheets/d/' + ssId + '/edit#gid=' + gid, startDate: startDate, endDate: endDate, rowCount: 0 };
     }
     var lastCol = Math.max(sheet.getLastColumn(), 20);
-    var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+    var dataRange = sheet.getRange(1, 1, sheet.getLastRow(), lastCol);
+    var data = dataRange.getValues();
+    var backgrounds = dataRange.getBackgrounds();
     var header = data[0] || [];
     var storIdCol = -1;
     for (var c = 0; c < header.length; c++) {
@@ -791,7 +893,7 @@ function getLastMonthTipsData(options) {
     if (remarkCol < 0 && header.length > TIPS_CONSOLIDATED_REMARK_COL_O && String(header[TIPS_CONSOLIDATED_REMARK_COL_O]).trim() === TIPS_CONSOLIDATED_REMARK_HEADER) remarkCol = TIPS_CONSOLIDATED_REMARK_COL_O;
     if (storIdCol < 0) return { ok: false, message: '小費統整表無「消費店家storId」欄' };
     if (employeeCode && remarkCol < 0) return { ok: false, message: '小費統整表無「消費備註」(O欄)，無法依員工編號篩選' };
-    var rows = [];
+    var entries = [];
     for (var r = 1; r < data.length; r++) {
       var row = data[r];
       if (managedStoreIds.length > 0) {
@@ -804,12 +906,12 @@ function getLastMonthTipsData(options) {
         var remark = (remarkCol >= 0 && row[remarkCol] != null) ? String(row[remarkCol]).trim() : '';
         if (remark.toLowerCase().indexOf(employeeCode.toLowerCase()) < 0) continue;
       }
-      rows.push(row);
+      entries.push({ row: row, bg: backgrounds[r] || [] });
     }
     if (managedStoreIds.length > 0) {
-      rows.sort(function (a, b) {
-        var sa = (a[storIdCol] != null) ? String(a[storIdCol]) : '';
-        var sb = (b[storIdCol] != null) ? String(b[storIdCol]) : '';
+      entries.sort(function (a, b) {
+        var sa = (a.row[storIdCol] != null) ? String(a.row[storIdCol]) : '';
+        var sb = (b.row[storIdCol] != null) ? String(b.row[storIdCol]) : '';
         return sa.localeCompare(sb);
       });
     }
@@ -821,11 +923,13 @@ function getLastMonthTipsData(options) {
       headerRow.push(c === 19 ? '姓名' : (c === 1 ? '手機' : (c < header.length && header[c] != null ? String(header[c]) : '')));
     }
     var outRows = [];
-    for (var ri = 0; ri < rows.length; ri++) {
+    var outBackgrounds = [];
+    for (var ri = 0; ri < entries.length; ri++) {
       var rowLine = [];
+      var bgLine = [];
       for (var j = 0; j < displayCols.length; j++) {
         var c = displayCols[j];
-        var v = c < rows[ri].length ? rows[ri][c] : null;
+        var v = c < entries[ri].row.length ? entries[ri].row[c] : null;
         var cellVal = '';
         if (v != null) {
           if (v instanceof Date || (typeof v === 'object' && typeof v.getTime === 'function')) {
@@ -835,10 +939,12 @@ function getLastMonthTipsData(options) {
           }
         }
         rowLine.push(cellVal);
+        bgLine.push((entries[ri].bg && entries[ri].bg[c]) ? entries[ri].bg[c] : '#ffffff');
       }
       outRows.push(rowLine);
+      outBackgrounds.push(bgLine);
     }
-    return { ok: true, headerRow: headerRow, rows: outRows, startDate: startDate, endDate: endDate, rowCount: rows.length, monthStr: monthStr, monthKey: monthKey };
+    return { ok: true, headerRow: headerRow, rows: outRows, rowBackgrounds: outBackgrounds, startDate: startDate, endDate: endDate, rowCount: entries.length, monthStr: monthStr, monthKey: monthKey };
   } catch (e) {
     return { ok: false, message: (e && e.message) ? e.message : String(e) };
   }
@@ -968,7 +1074,7 @@ function setLastMonthTipsSheetSharing(fileId) {
  * 上月小費報表：有則回傳既有試算表連結（備註 YYYYMM_小費_userId），無則產出新試算表並寫入請求紀錄表。
  * 請求紀錄表：同試算表 ID、工作表 gid=1792957916，欄位 id, 店家/使用者, 月份, url, 請求時間, 完成時間, 備註。
  * @param {{ managedStoreIds?: string[], userId: string }} options - userId 為 LINE userId
- * @returns {{ ok: boolean, url?: string, cached?: boolean, message?: string, rowCount?: number, shareWarning?: string }}
+ * @returns {{ ok: boolean, url?: string, cached?: boolean, message?: string, rowCount?: number }}
  */
 function getOrCreateLastMonthTipsSheet(options) {
   var userId = (options && options.userId != null) ? String(options.userId).trim() : '';
@@ -1002,14 +1108,7 @@ function getOrCreateLastMonthTipsSheet(options) {
         var rowRemark = (logData[r][colRemark] != null) ? String(logData[r][colRemark]).trim() : '';
         if (rowRemark === remarkKey) {
           var existingUrl = (logData[r][colUrl] != null) ? String(logData[r][colUrl]).trim() : '';
-          if (existingUrl) {
-            var shareWarning = null;
-            var fileIdMatch = existingUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
-            if (fileIdMatch && fileIdMatch[1]) {
-              shareWarning = setLastMonthTipsSheetSharing(fileIdMatch[1]);
-            }
-            return { ok: true, url: existingUrl, cached: true, shareWarning: shareWarning || undefined };
-          }
+          if (existingUrl) return { ok: true, url: existingUrl, cached: true };
         }
       }
     }
@@ -1024,15 +1123,23 @@ function getOrCreateLastMonthTipsSheet(options) {
       var numRows = 1 + rows.length;
       var values = [headerRow].concat(rows);
       newSheet.getRange(1, 1, numRows, numCols).setValues(values);
-      if (numRows >= 2 && numCols >= 12) {
+      if (rows.length && dataResult.rowBackgrounds && dataResult.rowBackgrounds.length) {
+        var bgValues = dataResult.rowBackgrounds.slice(0, rows.length);
+        for (var bi = 0; bi < bgValues.length; bi++) {
+          while (bgValues[bi].length < numCols) bgValues[bi].push('#ffffff');
+          if (bgValues[bi].length > numCols) bgValues[bi] = bgValues[bi].slice(0, numCols);
+        }
+        newSheet.getRange(2, 1, rows.length, numCols).setBackgrounds(bgValues);
+      }
+      if (numRows >= 2 && numCols >= 5) {
         try {
           var existingRules = newSheet.getConditionalFormatRules();
-          var colLetters = ['I', 'J', 'K', 'L'];
+          var colLetters = ['C', 'D', 'E'];
           var colors = { 1: '#ffc0cb', 2: '#ffff00', 3: '#90ee90' };
-          for (var ci = 0; ci < 4; ci++) {
+          for (var ci = 0; ci < 3; ci++) {
             var colLetter = colLetters[ci];
-            var col1Based = 9 + ci;
-            var range = newSheet.getRange(2, col1Based, numRows, col1Based);
+            var col1Based = 3 + ci;
+            var range = newSheet.getRange(2, col1Based, numRows, 1);
             for (var val = 1; val <= 3; val++) {
               var formula = '=OR(' + colLetter + '2=' + val + ',' + colLetter + '2="' + val + '")';
               existingRules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setBackground(colors[val]).setRanges([range]).build());
@@ -1042,13 +1149,15 @@ function getOrCreateLastMonthTipsSheet(options) {
         } catch (fmtErr) {}
       }
     }
-    var shareWarning = setLastMonthTipsSheetSharing(newSs.getId());
+    try {
+      DriveApp.getFileById(newSs.getId()).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr) {}
     var newUrl = 'https://docs.google.com/spreadsheets/d/' + newSs.getId() + '/edit';
     var now = new Date();
     var timeStr = Utilities.formatDate(now, TZ_TIPS, 'yyyy-MM-dd HH:mm:ss');
     var requestId = Utilities.getUuid();
     logSheet.appendRow([requestId, userId, monthStr, newUrl, timeStr, timeStr, remarkKey]);
-    return { ok: true, url: newUrl, cached: false, rowCount: dataResult.rowCount, shareWarning: shareWarning || undefined };
+    return { ok: true, url: newUrl, cached: false, rowCount: dataResult.rowCount };
   } catch (e) {
     return { ok: false, message: (e && e.message) ? e.message : String(e) };
   }

@@ -534,3 +534,502 @@ function getReportTextForKeyword(handler, options) {
     return { text: "報告產出時發生錯誤（" + (e && e.message ? e.message : String(e)) + "），請稍後再試或聯繫管理員。" };
   }
 }
+
+// =============================================================================
+// 神美日報：交易明細快取 + 進階課程統計 + 平均客單價
+// =============================================================================
+
+var DAILY_REPORT_TX_SHEET_NAME = "神美日報_交易明細";
+var DAILY_REPORT_SHARE_SHEET_NAME = "神美日報_心得分享";
+var DAILY_REPORT_TX_HEADERS = [
+  "Key", "Date", "StoreId", "StoreName", "OrderSn", "OrderId", "DetailId",
+  "ItemName", "ItemPrice", "EmployeeCode", "EmployeeName", "Remark", "CreatedTime"
+];
+var DAILY_REPORT_SHARE_HEADERS = [
+  "Timestamp", "Date", "EmployeeCode", "EmployeeName", "StoreId", "StoreName",
+  "AvgTicket", "OrderCount", "Content", "Approved", "ApprovedBy", "ApprovedAt"
+];
+var DAILY_REPORT_ADVANCED_KEYS = ["活氧", "逆齡", "頸緻", "水潤嘟嘟唇", "晶淨"];
+
+function getDailyReportSpreadsheet_() {
+  var config = (typeof getCoreConfig === "function") ? getCoreConfig() : {};
+  var ssId = config.DAILY_ACCOUNT_REPORT_SS_ID || config.LINE_STORE_SS_ID || "";
+  if (!ssId) return null;
+  try {
+    return SpreadsheetApp.openById(ssId);
+  } catch (e) {
+    console.warn("[Core] getDailyReportSpreadsheet_:", e);
+    return null;
+  }
+}
+
+function getOrCreateReportSheet_(ss, name, headers) {
+  if (!ss) return null;
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    if (headers && headers.length) sheet.appendRow(headers);
+  }
+  return sheet;
+}
+
+function toReportDateStr_(dateStr) {
+  if (dateStr && typeof dateStr === "string") return dateStr.trim();
+  var tz = REPORT_HELPERS_TZ || "Asia/Taipei";
+  return Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+}
+
+function isTipItem_(itemName) {
+  if (!itemName) return false;
+  return String(itemName).indexOf("小費") >= 0;
+}
+
+function getAdvancedCourseKey_(itemName) {
+  if (!itemName) return null;
+  var name = String(itemName);
+  for (var i = 0; i < DAILY_REPORT_ADVANCED_KEYS.length; i++) {
+    if (name.indexOf(DAILY_REPORT_ADVANCED_KEYS[i]) >= 0) return DAILY_REPORT_ADVANCED_KEYS[i];
+  }
+  return null;
+}
+
+function getItemPrice_(ordd, t) {
+  if (ordd && ordd.rprice != null) return Number(ordd.rprice) || 0;
+  if (ordd && ordd.price_ != null) return Number(ordd.price_) || 0;
+  if (t && t.rprice != null) return Number(t.rprice) || 0;
+  if (t && t.price_ != null) return Number(t.price_) || 0;
+  return 0;
+}
+
+function buildReportKey_(dateStr, storeId, orderId, detailId) {
+  return [dateStr || "", String(storeId || ""), String(orderId || ""), String(detailId || "")].join("|");
+}
+
+function getExistingKeysForDate_(sheet, dateStr) {
+  var keys = {};
+  if (!sheet) return keys;
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return keys;
+  var values = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var key = values[i][0];
+    var rowDate = values[i][1];
+    if (!key || !rowDate) continue;
+    if (String(rowDate) === dateStr) keys[String(key)] = true;
+  }
+  return keys;
+}
+
+function splitEmployeeNames_(nameText) {
+  if (!nameText) return [];
+  var raw = String(nameText).trim();
+  if (!raw) return [];
+  return raw.split(/[\/、，,]/).map(function (s) { return String(s).trim(); }).filter(Boolean);
+}
+
+function normalizeEmployeeFromTransaction_(t, empMap) {
+  var rawRemark = (t && t.remark != null) ? String(t.remark).trim() : "";
+  var code = (typeof parseEmployeeFromRemark === "function") ? parseEmployeeFromRemark(rawRemark, empMap) : null;
+  var name = "";
+  if (code && empMap && empMap[code]) name = empMap[code];
+  if (!code && rawRemark) code = rawRemark;
+  return { code: code || "", name: name || "" };
+}
+
+function getWorkNames_(ordd) {
+  if (!ordd || !ordd.work || !ordd.work.length) return [];
+  var out = [];
+  for (var i = 0; i < ordd.work.length; i++) {
+    var n = ordd.work[i] && ordd.work[i].usrnam ? String(ordd.work[i].usrnam).trim() : "";
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+function buildRowsFromTransaction_(dateStr, store, t, empMap) {
+  var rows = [];
+  if (!t) return rows;
+  var orderId = (t.ordcid != null) ? String(t.ordcid) : "";
+  var orderSn = (t.ordrsn != null) ? String(t.ordrsn) : "";
+  var created = (t.rectim || t.cretim || "");
+  var emp = normalizeEmployeeFromTransaction_(t, empMap);
+  var details = (t.ordds && t.ordds.length) ? t.ordds : [];
+  for (var i = 0; i < details.length; i++) {
+    var d = details[i];
+    var detailId = (d.orddid != null) ? String(d.orddid) : String(i);
+    var itemName = (d.godnam != null) ? String(d.godnam) : "";
+    var itemPrice = getItemPrice_(d, t);
+    var workNames = getWorkNames_(d);
+    var empName = emp.name;
+    if (!empName && workNames.length) empName = workNames.join("/");
+    var key = buildReportKey_(dateStr, store.id, orderId, detailId);
+    rows.push([
+      key,
+      dateStr,
+      String(store.id || ""),
+      String(store.name || ("店" + store.id)),
+      orderSn,
+      orderId,
+      detailId,
+      itemName,
+      itemPrice,
+      emp.code || "",
+      empName || "",
+      (t.remark != null ? String(t.remark) : ""),
+      created
+    ]);
+  }
+  return rows;
+}
+
+/**
+ * 每 30 分鐘同步一次：寫入當天交易明細（避免重複）
+ */
+function syncDailyReportTransactions(dateStr) {
+  dateStr = toReportDateStr_(dateStr);
+  var ss = getDailyReportSpreadsheet_();
+  if (!ss) return { ok: false, message: "無法開啟日報試算表" };
+  var sheet = getOrCreateReportSheet_(ss, DAILY_REPORT_TX_SHEET_NAME, DAILY_REPORT_TX_HEADERS);
+  if (!sheet) return { ok: false, message: "無法取得交易明細工作表" };
+  if (typeof getStoresInfo !== "function" || typeof getTransactionsForStoreByDate !== "function") {
+    return { ok: false, message: "缺少 getStoresInfo 或 getTransactionsForStoreByDate" };
+  }
+  var stores = getStoresInfo();
+  var empMap = (typeof getEmployeeCodeToNameMap === "function") ? getEmployeeCodeToNameMap() : {};
+  var existingKeys = getExistingKeysForDate_(sheet, dateStr);
+  var appendRows = [];
+  for (var i = 0; i < stores.length; i++) {
+    var store = stores[i];
+    var transactions = getTransactionsForStoreByDate(store.id, dateStr);
+    for (var j = 0; j < transactions.length; j++) {
+      var rows = buildRowsFromTransaction_(dateStr, store, transactions[j], empMap);
+      for (var k = 0; k < rows.length; k++) {
+        var key = rows[k][0];
+        if (!existingKeys[key]) {
+          existingKeys[key] = true;
+          appendRows.push(rows[k]);
+        }
+      }
+    }
+  }
+  if (appendRows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, appendRows.length, DAILY_REPORT_TX_HEADERS.length).setValues(appendRows);
+  }
+  return { ok: true, dateStr: dateStr, added: appendRows.length };
+}
+
+function readDailyReportRows_(dateStr) {
+  dateStr = toReportDateStr_(dateStr);
+  var ss = getDailyReportSpreadsheet_();
+  if (!ss) return [];
+  var sheet = getOrCreateReportSheet_(ss, DAILY_REPORT_TX_SHEET_NAME, DAILY_REPORT_TX_HEADERS);
+  if (!sheet) return [];
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+  var values = sheet.getRange(2, 1, lastRow - 1, DAILY_REPORT_TX_HEADERS.length).getValues();
+  var rows = [];
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][1]) !== dateStr) continue;
+    rows.push(values[i]);
+  }
+  return rows;
+}
+
+function readDailyReportRowsByDateRange_(startDate, endDate) {
+  var ss = getDailyReportSpreadsheet_();
+  if (!ss) return [];
+  var sheet = getOrCreateReportSheet_(ss, DAILY_REPORT_TX_SHEET_NAME, DAILY_REPORT_TX_HEADERS);
+  if (!sheet) return [];
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+  var values = sheet.getRange(2, 1, lastRow - 1, DAILY_REPORT_TX_HEADERS.length).getValues();
+  var rows = [];
+  for (var i = 0; i < values.length; i++) {
+    var d = String(values[i][1] || "");
+    if (d >= startDate && d <= endDate) rows.push(values[i]);
+  }
+  return rows;
+}
+
+function computeAggregatesFromRows_(rows, storeIds) {
+  var storeSet = null;
+  if (storeIds && storeIds.length) {
+    storeSet = {};
+    for (var i = 0; i < storeIds.length; i++) storeSet[String(storeIds[i]).trim()] = true;
+  }
+  var storeMap = {};
+  var orderTotals = {};
+  var orderEmployees = {};
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var storeId = String(row[2] || "");
+    if (storeSet && !storeSet[storeId]) continue;
+    var storeName = String(row[3] || ("店" + storeId));
+    var orderId = String(row[5] || "");
+    var itemName = String(row[7] || "");
+    var itemPrice = Number(row[8] || 0);
+    var empCode = String(row[9] || "");
+    var empName = String(row[10] || "");
+    var advKey = getAdvancedCourseKey_(itemName);
+    if (!storeMap[storeId]) {
+      storeMap[storeId] = {
+        storeId: storeId,
+        storeName: storeName,
+        advancedCounts: {},
+        employeeAdvancedCounts: {},
+        totalNoTip: 0,
+        orderCount: 0
+      };
+    }
+    var storeBlock = storeMap[storeId];
+
+    var orderKey = storeId + "|" + orderId;
+    if (!orderTotals[orderKey]) orderTotals[orderKey] = 0;
+    if (!orderEmployees[orderKey]) orderEmployees[orderKey] = {};
+
+    if (!isTipItem_(itemName)) {
+      orderTotals[orderKey] += itemPrice;
+    }
+    var empKeys = [];
+    if (empCode) empKeys.push(empCode);
+    if (!empCode && empName) empKeys = empKeys.concat(splitEmployeeNames_(empName));
+    for (var e = 0; e < empKeys.length; e++) {
+      orderEmployees[orderKey][empKeys[e]] = true;
+    }
+
+    if (advKey) {
+      storeBlock.advancedCounts[advKey] = (storeBlock.advancedCounts[advKey] || 0) + 1;
+      if (empKeys.length) {
+        for (var k = 0; k < empKeys.length; k++) {
+          var key = empKeys[k];
+          storeBlock.employeeAdvancedCounts[key] = (storeBlock.employeeAdvancedCounts[key] || 0) + 1;
+        }
+      }
+    }
+  }
+
+  // 計算平均客單
+  var storeIdsList = Object.keys(storeMap);
+  for (var s = 0; s < storeIdsList.length; s++) {
+    var sid = storeIdsList[s];
+    var block = storeMap[sid];
+    var total = 0;
+    var count = 0;
+    for (var orderKey in orderTotals) {
+      if (orderKey.indexOf(sid + "|") !== 0) continue;
+      var amt = orderTotals[orderKey] || 0;
+      if (amt > 0) {
+        total += amt;
+        count++;
+      }
+    }
+    block.totalNoTip = total;
+    block.orderCount = count;
+    block.avgTicket = count > 0 ? Math.round((total / count) * 100) / 100 : 0;
+  }
+
+  return { storeMap: storeMap, orderTotals: orderTotals, orderEmployees: orderEmployees };
+}
+
+function computeTopCoursesByStore_(storeMap) {
+  var result = {};
+  for (var i = 0; i < DAILY_REPORT_ADVANCED_KEYS.length; i++) {
+    var key = DAILY_REPORT_ADVANCED_KEYS[i];
+    result[key] = [];
+  }
+  for (var storeId in storeMap) {
+    var block = storeMap[storeId];
+    for (var j = 0; j < DAILY_REPORT_ADVANCED_KEYS.length; j++) {
+      var k = DAILY_REPORT_ADVANCED_KEYS[j];
+      var cnt = block.advancedCounts[k] || 0;
+      if (cnt > 0) result[k].push({ storeId: storeId, storeName: block.storeName, count: cnt });
+    }
+  }
+  for (var key2 in result) {
+    result[key2].sort(function (a, b) { return b.count - a.count; });
+    result[key2] = result[key2].slice(0, 5);
+  }
+  return result;
+}
+
+function computeTopAvgTicketEmployees_(rows) {
+  var empMap = (typeof getEmployeeCodeToNameMap === "function") ? getEmployeeCodeToNameMap() : {};
+  var orderTotals = {};
+  var orderEmployees = {};
+  var orderStore = {};
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var storeId = String(row[2] || "");
+    var storeName = String(row[3] || ("店" + storeId));
+    var orderId = String(row[5] || "");
+    var itemName = String(row[7] || "");
+    var itemPrice = Number(row[8] || 0);
+    var empCode = String(row[9] || "");
+    var empName = String(row[10] || "");
+    var orderKey = storeId + "|" + orderId;
+    if (!orderTotals[orderKey]) orderTotals[orderKey] = 0;
+    if (!orderEmployees[orderKey]) orderEmployees[orderKey] = {};
+    orderStore[orderKey] = { storeId: storeId, storeName: storeName };
+    if (!isTipItem_(itemName)) {
+      orderTotals[orderKey] += itemPrice;
+    }
+    var empKeys = [];
+    if (empCode) empKeys.push(empCode);
+    if (!empCode && empName) empKeys = empKeys.concat(splitEmployeeNames_(empName));
+    for (var e = 0; e < empKeys.length; e++) {
+      orderEmployees[orderKey][empKeys[e]] = true;
+    }
+  }
+
+  var empTotals = {};
+  var empCounts = {};
+  var empStores = {};
+  for (var orderKey in orderTotals) {
+    var total = orderTotals[orderKey] || 0;
+    if (total <= 0) continue;
+    var employees = orderEmployees[orderKey] || {};
+    for (var empKey in employees) {
+      if (!empTotals[empKey]) empTotals[empKey] = 0;
+      if (!empCounts[empKey]) empCounts[empKey] = 0;
+      if (!empStores[empKey]) empStores[empKey] = {};
+      empTotals[empKey] += total;
+      empCounts[empKey] += 1;
+      var storeInfo = orderStore[orderKey];
+      if (storeInfo && storeInfo.storeName) empStores[empKey][storeInfo.storeName] = true;
+    }
+  }
+
+  var out = [];
+  for (var emp in empTotals) {
+    var avg = empCounts[emp] ? (empTotals[emp] / empCounts[emp]) : 0;
+    out.push({
+      employeeCode: emp,
+      employeeName: empMap && empMap[emp] ? empMap[emp] : "",
+      avgTicket: Math.round(avg * 100) / 100,
+      orderCount: empCounts[emp] || 0,
+      stores: Object.keys(empStores[emp] || {})
+    });
+  }
+  out.sort(function (a, b) { return b.avgTicket - a.avgTicket; });
+  return out.slice(0, 5);
+}
+
+function buildDailyReportPayload(dateStr, storeIds) {
+  dateStr = toReportDateStr_(dateStr);
+  var rows = readDailyReportRows_(dateStr);
+  var agg = computeAggregatesFromRows_(rows, storeIds);
+  var storeList = [];
+  for (var sid in agg.storeMap) {
+    var b = agg.storeMap[sid];
+    storeList.push({
+      storeId: b.storeId,
+      storeName: b.storeName,
+      advancedCounts: b.advancedCounts,
+      avgTicket: b.avgTicket || 0,
+      orderCount: b.orderCount || 0,
+      employeeAdvancedCounts: b.employeeAdvancedCounts
+    });
+  }
+  return {
+    dateStr: dateStr,
+    stores: storeList,
+    topCourses: computeTopCoursesByStore_(agg.storeMap),
+    topAvgTicketEmployees: computeTopAvgTicketEmployees_(rows)
+  };
+}
+
+function buildMonthlyDailyReportPayload(year, month, storeIds) {
+  var now = new Date();
+  var y = year != null ? year : now.getFullYear();
+  var m = month != null ? month : (now.getMonth() + 1);
+  var range = getMonthDateRange(y, m);
+  var rows = readDailyReportRowsByDateRange_(range.startDate, range.endDate);
+  var byDate = {};
+  for (var i = 0; i < rows.length; i++) {
+    var d = String(rows[i][1] || "");
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(rows[i]);
+  }
+  var dates = Object.keys(byDate).sort();
+  var list = [];
+  for (var k = 0; k < dates.length; k++) {
+    var dateStr = dates[k];
+    var agg = computeAggregatesFromRows_(byDate[dateStr], storeIds);
+    var storeList = [];
+    for (var sid in agg.storeMap) {
+      var b = agg.storeMap[sid];
+      storeList.push({
+        storeId: b.storeId,
+        storeName: b.storeName,
+        advancedCounts: b.advancedCounts,
+        avgTicket: b.avgTicket || 0,
+        orderCount: b.orderCount || 0,
+        employeeAdvancedCounts: b.employeeAdvancedCounts
+      });
+    }
+    list.push({
+      dateStr: dateStr,
+      stores: storeList,
+      topCourses: computeTopCoursesByStore_(agg.storeMap)
+    });
+  }
+  return {
+    yearMonth: range.yearMonth,
+    startDate: range.startDate,
+    endDate: range.endDate,
+    daily: list
+  };
+}
+
+function writeDailyReportShare(sessionData, content) {
+  var ss = getDailyReportSpreadsheet_();
+  if (!ss) return { ok: false, message: "無法開啟日報試算表" };
+  var sheet = getOrCreateReportSheet_(ss, DAILY_REPORT_SHARE_SHEET_NAME, DAILY_REPORT_SHARE_HEADERS);
+  if (!sheet) return { ok: false, message: "無法取得分享工作表" };
+  var nowStr = Utilities.formatDate(new Date(), REPORT_HELPERS_TZ || "Asia/Taipei", "yyyy-MM-dd HH:mm:ss");
+  sheet.appendRow([
+    nowStr,
+    sessionData.dateStr || "",
+    sessionData.employeeCode || "",
+    sessionData.employeeName || "",
+    sessionData.storeId || "",
+    sessionData.storeName || "",
+    sessionData.avgTicket || 0,
+    sessionData.orderCount || 0,
+    String(content || "").trim(),
+    "",
+    "",
+    ""
+  ]);
+  return { ok: true };
+}
+
+/**
+ * 排程用：每 30 分鐘同步當天日帳交易到快取表
+ */
+function runDailyReportSync() {
+  return syncDailyReportTransactions();
+}
+
+/**
+ * Debug：檢查當日日報資料是否可產出
+ */
+function debugDailyReportFlow(dateStr) {
+  var targetDate = toReportDateStr_(dateStr);
+  var syncResult = syncDailyReportTransactions(targetDate);
+  var payload = buildDailyReportPayload(targetDate, null);
+  Logger.log("[DailyReport] sync=" + JSON.stringify(syncResult));
+  Logger.log("[DailyReport] stores=" + (payload.stores ? payload.stores.length : 0));
+  Logger.log("[DailyReport] topCourses=" + JSON.stringify(payload.topCourses));
+  Logger.log("[DailyReport] topAvg=" + JSON.stringify(payload.topAvgTicketEmployees));
+  return payload;
+}
+
+/**
+ * Debug：檢查當月日報清單是否可產出
+ */
+function debugMonthlyReportFlow(year, month) {
+  var payload = buildMonthlyDailyReportPayload(year, month, null);
+  Logger.log("[MonthlyReport] yearMonth=" + payload.yearMonth + " daily=" + (payload.daily ? payload.daily.length : 0));
+  return payload;
+}

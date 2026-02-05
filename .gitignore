@@ -1,0 +1,8 @@
+# 忽略依賴包和編譯檔
+node_modules/
+dist/
+build/
+# 忽略大型數據或日誌
+*.log
+*.json  # 如果你有超大的數據 json
+*.csv

@@ -144,10 +144,7 @@ function handleLineWebhook(data) {
       const filterResult = messFilter(msg); 
 
       if (filterResult) {
-        // isReply 絕對控制：線上預約（查詢空位）時，若 isReply === false 不跑後續、不 Reply
-        if (filterResult.type === "BOOKING" && filterResult.desc === "查詢空位" && storeInfo && storeInfo.isReply === false) {
-          continue;
-        }
+        // I 欄 isReply 只控制「查詢空位」是否用 reply token 傳給客人；不關閉查詢空位功能，仍會查空位、寫入挽留清單
         // [我的會員][課程介紹] 不用出現挽留清單、也不 Reply；只有 [線上預約] 才寫入清單並有機會 Reply
         var skipList = (filterResult.desc === "會員權益" || filterResult.desc === "了解課程");
         if (!skipList && validToken) {
@@ -182,12 +179,9 @@ function handleLineWebhook(data) {
 
 // ==========================================
 // [核心] 寫入挽留清單 (支援 AI 與 固定模板)
-// storeInfo 可選：若有 storeInfo.isReply === false（店家基本資料 I 欄），不自動回覆、不查空位、不寫入清單（絕對控制）
+// I 欄 isReply 只控制「查詢空位」是否用 reply token 傳給客人；查詢空位、寫入清單照常執行
 // ==========================================
 function addToRetentionList(userId, triggerMsg, token, context, sayId, replyToken, botDestinationId, storeInfo) {
-  if (storeInfo && storeInfo.isReply === false && context && context.type === "BOOKING") {
-    return;
-  }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss && typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID) ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
   if (!ss) return;
@@ -215,12 +209,10 @@ function addToRetentionList(userId, triggerMsg, token, context, sayId, replyToke
   let finalContent = "";
 
   if (context.type !== "IGNORE") {
-    // 1. 先查空位 (如果需要的話)；isReply 為 false 時不查空位、不顯示可預約時間（絕對控制）
+    // 1. 查詢空位照常執行（不因 isReply 關閉）；I 欄 isReply 只控制是否用 reply token 傳給客人
     let slotsStr = "";
-    if (context.type === "BOOKING" && sayId && (storeInfo == null || storeInfo.isReply !== false)) {
-       slotsStr = getUpcomingSlots(sayId, token); // 呼叫查空位函式
-    } else if (context.type === "BOOKING" && storeInfo && storeInfo.isReply === false) {
-       slotsStr = "(此店家未開放查詢可預約時間，請直接聯繫店家。)";
+    if (context.type === "BOOKING" && sayId) {
+      slotsStr = getUpcomingSlots(sayId, token);
     }
 
     // 2. 判斷要用 AI 還是 模板
@@ -247,7 +239,7 @@ function addToRetentionList(userId, triggerMsg, token, context, sayId, replyToke
     finalContent = "(系統指令，無需挽留)";
   }
   
-  // D. 線上預約（查詢空位）直接 Reply，不依姓名限制；條件：isReply、有內容、有 token
+  // D. 線上預約（查詢空位）用 reply token 傳給客人；I 欄 isReply 為 false 時不發送，其餘照常
   var rowStatus = "Pending";
   var allowReply = (storeInfo == null || storeInfo.isReply !== false);
   var isQuerySlots = (context.desc === "查詢空位");

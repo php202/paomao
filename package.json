@@ -7,6 +7,7 @@
     "ship": "node scripts/ship.js && git push",
     "ship-one": "node scripts/ship.js",
     "pull": "echo '請勿執行 clasp pull；本專案以本機為準，只做 npm run ship 發布新版本。' && exit 1",
-    "pull-all": "node scripts/pull-all.js"
+    "pull-all": "node scripts/pull-all.js",
+    "push-all": "node push-all.js"
   }
 }

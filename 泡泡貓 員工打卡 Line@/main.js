@@ -8,6 +8,49 @@ const FOLDER_ID = "1jrJSmi_alPOwK7cCkJUOLRAPtBl9acC3"; // 請確認 ID 正確
 /** 明日預約清單關鍵字是否開放：true = 「明天預約清單」「明日預約清單」可查清單；僅「明日預約」四字仍屏蔽 */
 const TOMORROW_LIST_ENABLED = true;
 
+/** 神美日報頁面網址（可用指令碼屬性 REPORT_PAGE_URL 覆寫） */
+function getReportPageUrl() {
+  try {
+    var url = PropertiesService.getScriptProperties().getProperty("REPORT_PAGE_URL");
+    if (url && String(url).trim() !== "") return String(url).trim();
+  } catch (e) {}
+  return "https://www.paopaomao.tw/report";
+}
+
+function collectManagedStoreIds(auth) {
+  var out = [];
+  if (auth && auth.managedStores && auth.managedStores.length) {
+    (auth.managedStores || []).forEach(function (s) {
+      String(s).split(/[,、，]/).forEach(function (id) {
+        var t = id.trim();
+        if (t) out.push(t);
+      });
+    });
+  }
+  return out;
+}
+
+function collectEmployeeStoreIds(auth) {
+  var out = [];
+  if (auth && auth.workStores && auth.workStores.length) {
+    (auth.workStores || []).forEach(function (id) {
+      var t = String(id || "").trim();
+      if (t) out.push(t);
+    });
+  } else if (auth && auth.storeIds && auth.storeIds.length) {
+    (auth.storeIds || []).forEach(function (id) {
+      var t = String(id || "").trim();
+      if (t) out.push(t);
+    });
+  } else if (auth && auth.stores && auth.stores.length) {
+    (auth.stores || []).forEach(function (id) {
+      var t = String(id || "").trim();
+      if (t) out.push(t);
+    });
+  }
+  return out;
+}
+
 /** 明日預約 API 網址：優先讀指令碼屬性 TOMORROW_BRIEFING_WEB_APP_URL，沒有再讀 Core Config */
 function getTomorrowBriefingWebAppUrl() {
   try {
@@ -408,6 +451,61 @@ function routeMessageEvent(event) {
       if (text.includes("補打卡"))      return makeUpTime(replyToken, userId, text);
       if (text.includes("Line問題集"))  return sendStoreLineQuestionRequest(replyToken, userId);
 
+      // 3.3 神美日報：員工看當天、管理者看當月
+      if (text.trim() === "神美日報") {
+        var url = "";
+        var key = "";
+        try {
+          url = PropertiesService.getScriptProperties().getProperty("PAO_CAT_CORE_API_URL") || "";
+          key = PropertiesService.getScriptProperties().getProperty("PAO_CAT_SECRET_KEY") || "";
+        } catch (eConf) {}
+        if (!url || !key) {
+          reply(replyToken, "神美日報失敗：未設定 Core API（請在本專案指令碼屬性設定 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY）。");
+          return;
+        }
+        url = url.trim();
+        key = key.trim();
+        var isManager = auth.identity && auth.identity.indexOf("manager") !== -1;
+        var storeIds = isManager ? collectManagedStoreIds(auth) : collectEmployeeStoreIds(auth);
+        if (storeIds.length === 0) {
+          reply(replyToken, "無法判斷您所屬的門市，請請管理者在「管理者清單」或員工設定中補上店家代碼。");
+          return;
+        }
+        try {
+          var payload = {
+            key: key,
+            action: "createReportToken",
+            role: isManager ? "manager" : "employee",
+            storeIds: storeIds.join(","),
+            userId: userId,
+            employeeCode: (auth.employeeCode != null ? String(auth.employeeCode).trim() : "")
+          };
+          var res = UrlFetchApp.fetch(url, {
+            method: "post",
+            contentType: "application/json",
+            payload: JSON.stringify(payload),
+            muteHttpExceptions: true
+          });
+          if (res.getResponseCode() !== 200) {
+            reply(replyToken, "神美日報產出失敗，請稍後再試。");
+            return;
+          }
+          var data = JSON.parse(res.getContentText() || "{}");
+          if (!data || data.status !== "ok" || !data.token) {
+            reply(replyToken, "神美日報產出失敗，請稍後再試。");
+            return;
+          }
+          var reportUrl = getReportPageUrl();
+          var fullUrl = reportUrl + (reportUrl.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(data.token);
+          reply(replyToken, "✅ 神美日報\n請點擊連結查看：\n" + fullUrl + "\n\n（此連結僅可使用一次）");
+          return;
+        } catch (e) {
+          console.warn("[神美日報] 失敗:", e);
+          reply(replyToken, "神美日報產出時發生錯誤，請稍後再試或聯繫管理員。");
+          return;
+        }
+      }
+
       // 僅「明日預約」四字屏蔽；「明日預約清單」「明天預約清單」可查清單
       if (text.trim() === "明日預約") {
         reply(replyToken, "此功能暫時關閉，敬請見諒。");
@@ -600,7 +698,6 @@ function routeMessageEvent(event) {
           if (reportText) {
             return reply(replyToken, reportText);
           }
-          reply(replyToken, "報告無內容或產出失敗，請稍後再試或聯繫管理員。");
           return;
         } catch (e) {
           console.warn("[報告關鍵字] 產出失敗:", e);

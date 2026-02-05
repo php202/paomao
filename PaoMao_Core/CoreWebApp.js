@@ -30,6 +30,16 @@
 
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
+  var action = (params.action != null) ? String(params.action).trim() : "";
+  if (action === "reportHtml") {
+    return HtmlService.createHtmlOutputFromFile("odoo_report");
+  }
+  if (action === "consumeReportToken") {
+    return actionConsumeReportToken(params);
+  }
+  if (action === "submitReportShare") {
+    return actionSubmitReportShare(params);
+  }
   return handleRequest(params, "GET");
 }
 
@@ -81,6 +91,8 @@ function handleRequest(params, method) {
         return actionLineReply(params);
       case "getCustomerAIResult":
         return actionGetCustomerAIResult(params);
+      case "getCoreConfig":
+        return actionGetCoreConfig();
       case "lastMonthTipsReport":
         return actionLastMonthTipsReport(params);
       case "syncLastMonthTipsConsolidated":
@@ -89,6 +101,8 @@ function handleRequest(params, method) {
         return actionGetOdooInvoice(params);
       case "issueInvoice":
         return actionIssueInvoice(params);
+      case "createReportToken":
+        return actionCreateReportToken(params);
       default:
         return jsonOut({ status: "error", message: "未知 action: " + action });
     }
@@ -261,6 +275,16 @@ function actionGetCustomerAIResult(params) {
 }
 
 /**
+ * Core API：取得 Core 設定
+ */
+function actionGetCoreConfig() {
+  if (typeof getCoreConfig !== "function") {
+    return jsonOut({ status: "error", message: "getCoreConfig 未定義（請確認 Config.js 已加入專案）" });
+  }
+  return jsonOut({ status: "ok", data: getCoreConfig() });
+}
+
+/**
  * 代為呼叫 LINE Reply API（供各店訊息一覽表等透過 Core API 發送挽留回覆）
  * 參數：replyToken, text, token（皆必填）
  */
@@ -318,4 +342,146 @@ function actionIssueInvoice(params) {
 
 function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// =============================================================================
+// 神美日報：一次性 token + 報表資料輸出
+// =============================================================================
+
+function actionCreateReportToken(params) {
+  var role = (params.role != null) ? String(params.role).trim() : "employee";
+  var storeIds = [];
+  if (params.storeIds != null) {
+    String(params.storeIds).split(/[,、，]/).forEach(function (id) {
+      var t = String(id || "").trim();
+      if (t) storeIds.push(t);
+    });
+  }
+  var userId = (params.userId != null) ? String(params.userId).trim() : "";
+  var employeeCode = (params.employeeCode != null) ? String(params.employeeCode).trim() : "";
+  if (!storeIds.length) {
+    return jsonOut({ status: "error", message: "storeIds 必填" });
+  }
+  var token = Utilities.getUuid().replace(/-/g, "");
+  var tz = (typeof REPORT_HELPERS_TZ !== "undefined") ? REPORT_HELPERS_TZ : "Asia/Taipei";
+  var dateStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  var payload = {
+    role: role,
+    storeIds: storeIds,
+    userId: userId,
+    employeeCode: employeeCode,
+    dateStr: dateStr,
+    createdAt: Date.now()
+  };
+  var cache = CacheService.getScriptCache();
+  cache.put("report_token_" + token, JSON.stringify(payload), 600);
+  return jsonOut({ status: "ok", token: token, expiresIn: 600, dateStr: dateStr });
+}
+
+function actionConsumeReportToken(params) {
+  var token = (params.token != null) ? String(params.token).trim() : "";
+  if (!token) return jsonOut({ status: "error", message: "缺少 token" });
+  var cache = CacheService.getScriptCache();
+  var key = "report_token_" + token;
+  var raw = cache.get(key);
+  if (!raw) return jsonOut({ status: "error", message: "連結已失效" });
+  cache.remove(key);
+  var payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (e) {
+    return jsonOut({ status: "error", message: "token 格式錯誤" });
+  }
+  var role = payload.role || "employee";
+  var storeIds = payload.storeIds || [];
+  var dateStr = payload.dateStr;
+  var result;
+  if (role === "manager") {
+    result = buildMonthlyDailyReportPayload(null, null, storeIds);
+    if (result && (!result.daily || result.daily.length === 0) && typeof syncDailyReportTransactions === "function") {
+      try {
+        syncDailyReportTransactions(dateStr);
+        result = buildMonthlyDailyReportPayload(null, null, storeIds);
+      } catch (eSync) {}
+    }
+  } else {
+    result = buildDailyReportPayload(dateStr, storeIds);
+    if (result && (!result.stores || result.stores.length === 0) && typeof syncDailyReportTransactions === "function") {
+      try {
+        syncDailyReportTransactions(dateStr);
+        result = buildDailyReportPayload(dateStr, storeIds);
+      } catch (eSync) {}
+    }
+  }
+
+  var top5 = buildDailyReportPayload(dateStr, null).topAvgTicketEmployees || [];
+  var canShare = false;
+  var shareSessionId = "";
+  var shareInfo = null;
+  if (payload.employeeCode) {
+    for (var i = 0; i < top5.length; i++) {
+      if (String(top5[i].employeeCode || "") === String(payload.employeeCode)) {
+        canShare = true;
+        shareInfo = top5[i];
+        break;
+      }
+    }
+  }
+  if (canShare && shareInfo) {
+    shareSessionId = Utilities.getUuid().replace(/-/g, "");
+    var empName = "";
+    try {
+      var empMap = (typeof getEmployeeCodeToNameMap === "function") ? getEmployeeCodeToNameMap() : {};
+      if (empMap && empMap[payload.employeeCode]) empName = empMap[payload.employeeCode];
+    } catch (eMap) {}
+    var storeId = storeIds.length ? String(storeIds[0]) : "";
+    var storeName = "";
+    if (result && result.stores && result.stores.length) {
+      storeName = result.stores[0].storeName || "";
+    }
+    var sessionPayload = {
+      dateStr: dateStr,
+      employeeCode: payload.employeeCode,
+      employeeName: empName,
+      storeId: storeId,
+      storeName: storeName,
+      avgTicket: shareInfo.avgTicket || 0,
+      orderCount: shareInfo.orderCount || 0,
+      createdAt: Date.now()
+    };
+    cache.put("report_share_" + shareSessionId, JSON.stringify(sessionPayload), 3600);
+  }
+
+  return jsonOut({
+    status: "ok",
+    role: role,
+    dateStr: dateStr,
+    data: result,
+    topAvgTicketEmployees: top5,
+    canShare: canShare,
+    shareSessionId: shareSessionId
+  });
+}
+
+function actionSubmitReportShare(params) {
+  var sessionId = (params.sessionId != null) ? String(params.sessionId).trim() : "";
+  var content = (params.content != null) ? String(params.content).trim() : "";
+  if (!sessionId) return jsonOut({ status: "error", message: "缺少 sessionId" });
+  if (!content) return jsonOut({ status: "error", message: "請輸入心得內容" });
+  if (content.length > 1500) return jsonOut({ status: "error", message: "心得內容過長" });
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get("report_share_" + sessionId);
+  if (!raw) return jsonOut({ status: "error", message: "連結已失效" });
+  var sessionData;
+  try {
+    sessionData = JSON.parse(raw);
+  } catch (e) {
+    return jsonOut({ status: "error", message: "session 格式錯誤" });
+  }
+  var result = writeDailyReportShare(sessionData, content);
+  if (result && result.ok) {
+    cache.remove("report_share_" + sessionId);
+    return jsonOut({ status: "ok" });
+  }
+  return jsonOut({ status: "error", message: (result && result.message) ? result.message : "寫入失敗" });
 }

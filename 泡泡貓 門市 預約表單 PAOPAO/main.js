@@ -42,8 +42,9 @@ function doPost(e) {
               try {
                 const managedStoreIds = (auth.managedStores || []).map(function (s) { return String(s).trim(); });
                 const result = Core.getReportTextForKeyword(reportHandler, { managedStoreIds: managedStoreIds });
-                const msg = (result && result.text) ? result.text : '報告無內容或產出失敗，請稍後再試或聯繫管理員。';
-                Core.sendLineReply(event.replyToken, msg, paopaoToken);
+                if (result && result.text) {
+                  Core.sendLineReply(event.replyToken, result.text, paopaoToken);
+                }
               } catch (err) {
                 Core.sendLineReply(event.replyToken, '產出報告時發生錯誤，請稍後再試或聯繫管理員。', paopaoToken);
               }

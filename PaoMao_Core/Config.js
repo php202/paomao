@@ -12,10 +12,10 @@ const LINE_STORE_SS_ID = '1ZV_0vjtQylyEWrrB5n05fBvvQiDoexYvFuztje1Fgm0' // 訊�
 const LINE_STAFF_SS_ID = '1GH2XbihFIY0AX8SMF9Tk6igrVKPpA_vMJVlkDkJjpe4' // 泡泡貓 員工打卡 line@
 const LINE_HQ_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE' // 泡泡貓 門市資料
 /** 五星好評／小費表單回應試算表（Google 表單回應） */
-const TIPS_FORM_SS_ID = '1wAfl4Dipag6Eh8msOYUc0ZUepaeQR_HnQNEcxIVUt3M'
+const TIPS_FORM_SS_ID = '1GH2XbihFIY0AX8SMF9Tk6igrVKPpA_vMJVlkDkJjpe4'
 const TIPS_FORM_SHEET_NAME = 'sheet1'
 /** 表單回應所在工作表的 gid（與試算表網址 #gid= 一致）；有設定則依 gid 開表，否則依 TIPS_FORM_SHEET_NAME */
-const TIPS_FORM_SHEET_GID = 644050420
+const TIPS_FORM_SHEET_GID = 1880863080
 /** 小費表寫入目標：員工打卡試算表內的工作表 gid（#gid=1792957916） */
 const TIP_TABLE_SHEET_GID = 1792957916
 /** 小費統整表：每月 2 號同步問卷 A:M + 消費／儲值金，寫入此 gid（#gid=1727178779） */
