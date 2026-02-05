@@ -89,6 +89,37 @@ function outputJSON(data) {
 }
 
 /**
+ * 問卷提交觸發：呼叫 Core API 同步小費統整表
+ * 請在問卷回應試算表綁定此專案後建立「表單提交時」觸發器。
+ * @param {GoogleAppsScript.Events.SheetsOnFormSubmit} e
+ */
+function onTipsFormSubmitCallCore(e) {
+  if (!e) return;
+  try {
+    Core.syncLastMonthTipsConsolidated();
+  } catch (err) {
+    console.warn("[onTipsFormSubmitCallCore] syncLastMonthTipsConsolidated failed:", err && err.message ? err.message : err);
+  }
+}
+
+/**
+ * 一次性呼叫：建立「提交表單時」執行 onTipsFormSubmitCallCore 的觸發器。
+ */
+function createTipsFormSubmitTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction && triggers[i].getHandlerFunction() === "onTipsFormSubmitCallCore") {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  ScriptApp.newTrigger("onTipsFormSubmitCallCore")
+    .forSpreadsheet(SpreadsheetApp.getActive())
+    .onFormSubmit()
+    .create();
+  console.log("[onTipsFormSubmitCallCore] Trigger created.");
+}
+
+/**
  * 從「我要了解客人0925810424」或「我要了解客人925810424」擷取手機，正規化為 09xxxxxxxx（10 碼）回傳。
  * 925810424（9 碼）會補 0 成 0925810424，與試算表 0925810424 可正確對應。
  */

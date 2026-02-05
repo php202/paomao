@@ -140,6 +140,13 @@ var CoreApi = (function () {
       var r = callGet("getUserDisplayName", { userId: userId, token: token, groupId: groupId || "", roomId: roomId || "" });
       if (r.status === "ok" && r.displayName != null) return r.displayName;
       return "未知用戶";
+    },
+    syncLastMonthTipsConsolidated: function () {
+      var r = callGet("syncLastMonthTipsConsolidated", {});
+      if (r.status && r.status !== "ok" && r.ok !== true) {
+        throw new Error(r.message || "syncLastMonthTipsConsolidated 失敗");
+      }
+      return r;
     }
   };
 })();
