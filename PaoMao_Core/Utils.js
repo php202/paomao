@@ -156,19 +156,19 @@ function getStoresInfo() {
 }
 
 /**
- * 從「員工清單」（泡泡貓 員工打卡 Line@ 試算表）取得 員工代碼 → 姓名 對照，供消費紀錄備註（如 nk001）解析用。
- * 員工清單結構：A=代碼, B=店家, C=姓名, D=LineId, E=職稱, F=saydouId（與 data_tools 一致）
- * @returns {Object} { "nk001": "王小明", ... }
+ * 從「員工清單」（泡泡貓 員工打卡 Line@ 試算表）取得 員工代碼 → 姓名 對照。
+ * 依需求改用 L 欄作為員工代碼，C 欄為姓名。
+ * @returns {Object} { "gm008": "王小明", ... }
  */
 function getEmployeeCodeToNameMap() {
   try {
     var ss = SpreadsheetApp.openById(LINE_STAFF_SS_ID);
     var sheet = ss.getSheetByName("員工清單");
     if (!sheet || sheet.getLastRow() < 2) return {};
-    var data = sheet.getRange(2, 1, sheet.getLastRow(), 3).getValues(); // A~C：代碼、店家、姓名
+    var data = sheet.getRange(2, 1, sheet.getLastRow(), 12).getValues(); // A~L
     var map = {};
     for (var i = 0; i < data.length; i++) {
-      var code = data[i][0] != null ? String(data[i][0]).trim() : "";
+      var code = data[i][11] != null ? String(data[i][11]).trim() : "";
       var name = data[i][2] != null ? String(data[i][2]).trim() : "";
       if (code) map[code] = name || code;
     }

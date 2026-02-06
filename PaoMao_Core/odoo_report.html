@@ -8,7 +8,7 @@
     line-height: 1.5;
   }
   .bubble-cat-wrapper * { box-sizing: border-box; }
-  .bubble-cat-card {
+  .bubble-cat-wrapper .bubble-cat-card {
     max-width: 920px;
     margin: 0 auto;
     background: #fff;
@@ -16,31 +16,35 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     padding: 1.5rem;
   }
-  h2, h3 { margin: 0 0 0.75rem; }
-  h3 { margin-top: 1.25rem; font-size: 1.05rem; }
-  .state { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 1rem;}
-  .state.loading { background: #e3f2fd; color: #1565c0; }
-  .state.error { background: #ffebee; color: #c62828; }
-  .section { margin-bottom: 1.25rem; }
-  .store-block {
+  .bubble-cat-wrapper h2,
+  .bubble-cat-wrapper h3 { margin: 0 0 0.75rem; }
+  .bubble-cat-wrapper h3 { margin-top: 1.25rem; font-size: 1.05rem; }
+  .bubble-cat-wrapper .state { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 1rem;}
+  .bubble-cat-wrapper .state.loading { background: #e3f2fd; color: #1565c0; }
+  .bubble-cat-wrapper .state.error { background: #ffebee; color: #c62828; }
+  .bubble-cat-wrapper .section { margin-bottom: 1.25rem; }
+  .bubble-cat-wrapper .store-block {
     border: 1px solid #eee;
     border-radius: 6px;
     padding: 0.75rem;
     margin-bottom: 0.75rem;
   }
-  .kv { display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.95rem; }
-  .tag { background: #f0f0f0; padding: 0.15rem 0.5rem; border-radius: 4px; }
-  .list { margin: 0.25rem 0 0; padding-left: 1.2rem; }
-  .share-box { margin-top: 1rem; }
-  textarea { width: 100%; min-height: 80px; padding: 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; }
-  button { margin-top: 0.5rem; padding: 0.5rem 1rem; background: #2196f3; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
-  button:disabled { background: #ccc; cursor: not-allowed; }
-  .small { font-size: 0.9rem; color: #666; }
+  .bubble-cat-wrapper .kv { display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.95rem; }
+  .bubble-cat-wrapper .tag { background: #f0f0f0; padding: 0.15rem 0.5rem; border-radius: 4px; }
+  .bubble-cat-wrapper .list { margin: 0.25rem 0 0; padding-left: 1.2rem; }
+  .bubble-cat-wrapper .share-box { margin-top: 1rem; }
+  .bubble-cat-wrapper .pay-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.4rem 0.8rem; margin-top: 0.4rem; }
+  .bubble-cat-wrapper .pay-item { font-size: 0.9rem; }
+  .bubble-cat-wrapper .two-col-list { column-count: 2; column-gap: 1.5rem; }
+  .bubble-cat-wrapper textarea { width: 100%; min-height: 80px; padding: 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; }
+  .bubble-cat-wrapper button { margin-top: 0.5rem; padding: 0.5rem 1rem; background: #2196f3; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+  .bubble-cat-wrapper button:disabled { background: #ccc; cursor: not-allowed; }
+  .bubble-cat-wrapper .small { font-size: 0.9rem; color: #666; }
 </style>
 
 <div class="bubble-cat-wrapper">
   <div class="bubble-cat-card">
-    <h2>神美日報</h2>
+    <h2>泡泡日報</h2>
     <div id="status" class="state loading">正在載入…</div>
     <div id="content"></div>
   </div>
@@ -48,7 +52,7 @@
 
 <script>
   (function () {
-    var GAS_BASE_URL = "https://script.google.com/macros/s/你的部署ID/exec";
+    var GAS_BASE_URL = "https://script.google.com/macros/s/AKfycby5ibTcUxvPD-Xj1-lOHOJ5oI27CbyyaHv2K3cvNd1PwMiPvwGCpjlzi6UbW4fwip2UaA/exec";
 
     function getToken() {
       var params = new URLSearchParams(window.location.search);
@@ -67,21 +71,44 @@
       if (el) el.style.display = "none";
     }
 
-    function renderStoreBlock(store) {
+    function renderStoreBlock(store, dateText) {
       var adv = store.advancedCounts || {};
       var empAdv = store.employeeAdvancedCounts || {};
-      var advTags = Object.keys(adv).map(function (k) { return '<span class="tag">' + k + ': ' + adv[k] + '</span>'; }).join(" ");
-      var empLines = Object.keys(empAdv).map(function (k) { return '<li>' + k + ': ' + empAdv[k] + '</li>'; }).join("");
+      var pay = store.paymentSummary || null;
+      var advOrder = ["活氧", "晶淨", "嘟唇", "逆齡", "頸緻"];
+      var advTags = advOrder.filter(function (k) { return adv[k]; })
+        .map(function (k) { return '<span class="tag">' + k + ': ' + adv[k] + '</span>'; }).join(" ");
+      var empLines = Object.keys(empAdv).map(function (k) {
+        var courseMap = empAdv[k] || {};
+        var parts = Object.keys(courseMap).map(function (c) { return c + ":" + courseMap[c]; }).join(" ");
+        return '<li>' + k + (parts ? (" " + parts) : "") + '</li>';
+      }).join("");
+      var payHtml = "";
+      if (pay) {
+        payHtml =
+          '<div class="pay-grid">' +
+            '<div class="pay-item">現金總額(勿動)：' + pay.cashTotal + '</div>' +
+            '<div class="pay-item">消費紀錄(現金)：' + pay.cashBusiness + '</div>' +
+            '<div class="pay-item">儲值(現金)：' + pay.cashUnearn + '</div>' +
+            '<div class="pay-item">第三方支付總額(勿動)：' + pay.thirdPayTotal + '</div>' +
+            '<div class="pay-item">消費紀錄(轉帳)：' + pay.transferRecord + '</div>' +
+            '<div class="pay-item">消費紀錄(line)：' + pay.lineRecord + '</div>' +
+            '<div class="pay-item">儲值(轉帳)：' + pay.transferUnearn + '</div>' +
+            '<div class="pay-item">儲值(line)：' + pay.lineUnearn + '</div>' +
+            '<div class="pay-item">業績：' + (pay.todayService || 0) + '</div>' +
+          '</div>';
+      }
       return (
         '<div class="store-block">' +
-          '<div><strong>' + store.storeName + '</strong></div>' +
+          '<div><strong>' + store.storeName + '</strong>' + (dateText ? (' <span class="small">(' + dateText + ')</span>') : '') + '</div>' +
+          (payHtml ? ('<div class="small" style="margin-top:0.4rem;">金流摘要</div>' + payHtml) : '') +
           '<div class="kv">' +
             '<span class="tag">平均客單價: ' + (store.avgTicket || 0) + '</span>' +
             '<span class="tag">訂單數: ' + (store.orderCount || 0) + '</span>' +
           '</div>' +
           '<div class="kv" style="margin-top:0.4rem;">' + advTags + '</div>' +
           '<div style="margin-top:0.4rem;">同事進階課程件數</div>' +
-          '<ul class="list">' + (empLines || "<li>無資料</li>") + '</ul>' +
+          '<ul class="list two-col-list">' + (empLines || "<li>無資料</li>") + '</ul>' +
         '</div>'
       );
     }
@@ -90,11 +117,14 @@
       if (!topCourses) return "";
       var keys = Object.keys(topCourses);
       if (!keys.length) return "";
-      var html = '<div class="section"><h3>全店進階課程 Top5</h3>';
+      var html = '<div class="section"><h3>全台泡泡貓本日推廣排名</h3>';
       keys.forEach(function (k) {
         var list = topCourses[k] || [];
-        var items = list.map(function (x) { return '<li>' + x.storeName + '：' + x.count + '</li>'; }).join("");
-        html += '<div><strong>' + k + '</strong><ul class="list">' + (items || "<li>無資料</li>") + '</ul></div>';
+        if (!list.length) return;
+        var items = list.map(function (x, idx) {
+          return '<li>No.' + (idx + 1) + ' ' + x.storeName + '：' + x.count + '</li>';
+        }).join("");
+        html += '<div><strong>' + k + '</strong><ul class="list">' + items + '</ul></div>';
       });
       html += '</div>';
       return html;
@@ -104,9 +134,15 @@
       if (!list || !list.length) return "";
       var items = list.map(function (x) {
         var stores = (x.stores && x.stores.length) ? ("（" + x.stores.join("、") + "）") : "";
-        return '<li>' + x.employeeCode + '：' + x.avgTicket + ' / ' + x.orderCount + ' 單 ' + stores + '</li>';
+        var name = x.employeeName ? (" " + x.employeeName) : "";
+        return '<li>' + x.employeeCode + name + '：' + x.avgTicket + ' / ' + x.orderCount + ' 單 ' + stores + '</li>';
       }).join("");
       return '<div class="section"><h3>全品牌平均客單 Top5</h3><ul class="list">' + items + '</ul></div>';
+    }
+
+    function renderGlobalAvg(avg) {
+      if (avg == null) return "";
+      return '<div class="section"><strong>全台泡泡貓：平均客單價</strong> ' + avg + '</div>';
     }
 
     function renderShareForm(sessionId) {
@@ -183,15 +219,19 @@
           var daily = (json.data && json.data.daily) ? json.data.daily : [];
           html += '<div class="section"><h3>當月日報清單</h3></div>';
           daily.forEach(function (d) {
-            html += '<div class="section"><strong>' + d.dateStr + '</strong>';
-            (d.stores || []).forEach(function (s) { html += renderStoreBlock(s); });
+            var dateText = (d.dateStr && String(d.dateStr).indexOf("GMT") >= 0) ? new Date(d.dateStr).toISOString().slice(0, 10) : (d.dateStr || "");
+            html += '<div class="section">';
+            (d.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText); });
             html += renderTopCourses(d.topCourses);
+            html += renderGlobalAvg(d.globalAvgTicket);
             html += '</div>';
           });
         } else {
           html += '<div class="section"><h3>今日日報</h3></div>';
-          (json.data && json.data.stores || []).forEach(function (s) { html += renderStoreBlock(s); });
+          var dateText = json.data && json.data.dateStr ? String(json.data.dateStr) : "";
+          (json.data && json.data.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText); });
           html += renderTopCourses(json.data ? json.data.topCourses : null);
+          html += renderGlobalAvg(json.data ? json.data.globalAvgTicket : null);
           html += renderTopAvgTicket(json.topAvgTicketEmployees);
           if (json.canShare && json.shareSessionId) {
             html += renderShareForm(json.shareSessionId);

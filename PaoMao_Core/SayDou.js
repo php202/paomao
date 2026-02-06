@@ -240,10 +240,10 @@ function fetchDailyIncome(dateStr, storeId) {
 function fetchTransactions(startDate, endDate, storeIds, page = 0, limit = 50) {
   const bearerToken = getBearerTokenFromSheet();
   
-  // 組合 storeId 陣列字串
-  const storeIdString = storeIds.map(id => `&store%5B%5D=${id}`).join('');
+  // 組合 storeId 陣列字串（以 store%5B%5D 參數傳遞）
+  const storeIdString = storeIds.map(id => `&store%5B%5D=${encodeURIComponent(id)}`).join('');
   
-  const apiUrl = `https://saywebdatafeed.saydou.com/api/management/finance/transaction?page=${page}&limit=${limit}&sort=ordrsn&order=desc&keyword=&start=${startDate}&end=${endDate}&searchMemberCtrl=null&searchProductCtrl=null&searchStaffCtrl=null&membid=0&godsid=0&usrsid=0&memnam=&godnam=&usrnam=&assign=all&goctString=${storeIdString}`;
+  const apiUrl = `https://saywebdatafeed.saydou.com/api/management/finance/transaction?page=${page}&limit=${limit}&sort=ordrsn&order=desc&keyword=&start=${startDate}&end=${endDate}&searchMemberCtrl=null&searchProductCtrl=null&searchStaffCtrl=null&membid=0&godsid=0&usrsid=0&memnam=&godnam=&usrnam=&assign=all&licnum=&goctString=${storeIdString}`;
     
   try {
     const response = UrlFetchApp.fetch(apiUrl, {
@@ -314,7 +314,14 @@ function getTransactionsForStoreByDate(storeId, dateStr) {
     for (var i = 0; i < items.length; i++) {
       var t = items[i];
       var recDate = (t.rectim || t.cretim || "").slice(0, 10);
-      var storId = (t.stor && t.stor.storid != null) ? String(t.stor.storid) : "";
+      var storId = "";
+      if (t.storid != null && t.storid !== "") {
+        storId = String(t.storid);
+      } else if (t.stor && t.stor.storid != null) {
+        storId = String(t.stor.storid);
+      } else if (t.store != null) {
+        storId = String(t.store);
+      }
       if (recDate === dateStr && storId === String(storeId)) all.push(t);
     }
     page++;
@@ -341,7 +348,14 @@ function getTransactionsForStoreByDateRange(storeId, startDate, endDate) {
     for (var i = 0; i < items.length; i++) {
       var t = items[i];
       var recDate = (t.rectim || t.cretim || "").slice(0, 10);
-      var storId = (t.stor && t.stor.storid != null) ? String(t.stor.storid) : "";
+      var storId = "";
+      if (t.storid != null && t.storid !== "") {
+        storId = String(t.storid);
+      } else if (t.stor && t.stor.storid != null) {
+        storId = String(t.stor.storid);
+      } else if (t.store != null) {
+        storId = String(t.store);
+      }
       if (recDate >= startDate && recDate <= endDate && storId === String(storeId)) all.push(t);
     }
     page++;

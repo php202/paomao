@@ -28,7 +28,7 @@ function getUserId(replyToken, userId, message) {
   const extractedName = extractNameFromMessage(message);
 
   if (!extractedName) {
-    return reply(replyToken, "⚠️ 系統無法辨識您的名字。\n\n請依照格式輸入，例如：\n姓名：王小明\n電話：0912345678");
+    return reply(replyToken, "⚠️ 系統無法辨識您的名字。\n\n請依照格式輸入，例如：\n【我要註冊】\n姓名：王小明\n電話：0912345678");
   }
 
   // (B) 比對「員工清單」(白名單驗證)
@@ -40,34 +40,40 @@ function getUserId(replyToken, userId, message) {
   const cleanInputName = extractedName.replace(/\s/g, "");
   const matchName = validNames.find(dbName => String(dbName).replace(/\s/g, "") === cleanInputName);
 
-  // (C) 驗證失敗：名字不在清單中
-  if (!matchName) {
-    console.log(`註冊失敗: 輸入[${cleanInputName}] 不在員工清單內`);
-    return reply(replyToken, `❌ 註冊失敗\n\n系統在「員工清單」中找不到「${extractedName}」這個名字。\n\n請確認：\n1. 是否輸入「中文全名」\n2. 是否有錯別字\n3. 若是新進員工，請先請主管將您加入清單。`);
+  // (C) 名字不在清單中：仍允許申請，交由內部審核
+  const isExternalApplicant = !matchName;
+  if (isExternalApplicant) {
+    console.log(`外部申請: 輸入[${cleanInputName}] 不在員工清單內`);
   }
 
   // ==========================================
   // 4. 驗證成功：寫入資料 (自動填寫 E, F 欄)
   // ==========================================
   
-  // 為了讓 E 欄整齊，我們寫入「比對成功」的那格標準名字 (matchName)，而不是使用者亂打的
+  // 為了讓 E 欄整齊，若有比對成功就用標準名字；外部申請則寫入使用者姓名
   const timestamp = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss");
   
   // 欄位對應：
   // A: 時間, B: UserId, C: LINE暱稱(自動抓), D: 原始訊息, E: 解析姓名(matchName), F: UserId
   const lineProfileName = Core.getUserDisplayName(userId, '', '', LINE_TOKEN_PAOSTAFF);
+  const displayNameForSheet = isExternalApplicant ? extractedName : matchName;
+  const messageForSheet = isExternalApplicant ? `【外部申請】${message}` : message;
 
   applySheet.appendRow([
     timestamp,       // A
     userId,          // B
     lineProfileName, // C
-    message,         // D
-    matchName,       // E (自動填入標準姓名)
+    messageForSheet, // D
+    displayNameForSheet, // E (標準姓名或外部姓名)
     userId           // F (自動填入 ID)
   ]);
 
   // 回覆成功訊息
-  reply(replyToken, `✅ 申請已送出！\n\n系統已確認您的身分：${matchName}\n請等待管理員開通權限。`);
+  if (isExternalApplicant) {
+    reply(replyToken, `✅ 申請已送出！\n\n系統未在員工清單中找到「${extractedName}」，已改由內部審核。\n請等待管理員開通權限。`);
+  } else {
+    reply(replyToken, `✅ 申請已送出！\n\n系統已確認您的身分：${matchName}\n請等待管理員開通權限。`);
+  }
 }
 
 // ==========================================
