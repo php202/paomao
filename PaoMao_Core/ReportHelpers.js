@@ -541,6 +541,7 @@ function getReportTextForKeyword(handler, options) {
 
 var DAILY_REPORT_TX_SHEET_NAME = "神美日報_交易明細";
 var DAILY_REPORT_SHARE_SHEET_NAME = "神美日報_心得分享";
+var DAILY_REPORT_ACCESS_SHEET_NAME = "神美日報_開啟紀錄";
 var DAILY_REPORT_TX_HEADERS = [
   "Key", "Date", "StoreId", "StoreName", "OrderSn", "OrderId", "DetailId",
   "ItemName", "ItemPrice", "EmployeeCode", "EmployeeName", "Remark", "CreatedTime"
@@ -548,6 +549,9 @@ var DAILY_REPORT_TX_HEADERS = [
 var DAILY_REPORT_SHARE_HEADERS = [
   "Timestamp", "Date", "EmployeeCode", "EmployeeName", "StoreId", "StoreName",
   "AvgTicket", "OrderCount", "Content", "Approved", "ApprovedBy", "ApprovedAt"
+];
+var DAILY_REPORT_ACCESS_HEADERS = [
+  "Timestamp", "Date", "Role", "UserId", "EmployeeCode", "EmployeeName", "StoreIds"
 ];
 var DAILY_REPORT_ADVANCED_KEYS = ["活氧", "逆齡", "頸緻", "嘟唇", "晶淨"];
 
@@ -1207,6 +1211,24 @@ function writeDailyReportShare(sessionData, content) {
     "",
     "",
     ""
+  ]);
+  return { ok: true };
+}
+
+function writeDailyReportAccessLog(payload) {
+  var ss = getDailyReportSpreadsheet_();
+  if (!ss) return { ok: false, message: "無法開啟日報試算表" };
+  var sheet = getOrCreateReportSheet_(ss, DAILY_REPORT_ACCESS_SHEET_NAME, DAILY_REPORT_ACCESS_HEADERS);
+  if (!sheet) return { ok: false, message: "無法取得開啟紀錄工作表" };
+  var nowStr = Utilities.formatDate(new Date(), REPORT_HELPERS_TZ || "Asia/Taipei", "yyyy-MM-dd HH:mm:ss");
+  sheet.appendRow([
+    nowStr,
+    payload.dateStr || "",
+    payload.role || "",
+    payload.userId || "",
+    payload.employeeCode || "",
+    payload.employeeName || "",
+    (payload.storeIds || []).join(",")
   ]);
   return { ok: true };
 }

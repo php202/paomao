@@ -557,7 +557,17 @@ function routeMessageEvent(event) {
           }
           var reportUrl = getReportPageUrl();
           var fullUrl = reportUrl + (reportUrl.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(data.token);
-          reply(replyToken, "✅ 神美日報\n請點擊連結查看：\n" + fullUrl + "\n\n（此連結僅可使用一次）");
+          reply(replyToken, [
+            {
+              type: "template",
+              altText: "神美日報：請點擊按鈕開啟日報（此連結僅可使用一次）",
+              template: {
+                type: "buttons",
+                text: "✅ 神美日報\n請點擊下方按鈕查看：\n\n（此連結僅可使用一次）",
+                actions: [{ type: "uri", label: "開啟日報", uri: fullUrl }]
+              }
+            }
+          ]);
           return;
         } catch (e) {
           console.warn("[神美日報] 失敗:", e);

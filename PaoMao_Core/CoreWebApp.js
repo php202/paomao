@@ -546,6 +546,24 @@ function actionConsumeReportToken(params) {
     cache.put("report_share_" + shareSessionId, JSON.stringify(sessionPayload), 3600);
   }
 
+  try {
+    var empNameForLog = "";
+    var empMapLog = (typeof getEmployeeCodeToNameMap === "function") ? getEmployeeCodeToNameMap() : {};
+    if (payload.employeeCode && empMapLog && empMapLog[payload.employeeCode]) {
+      empNameForLog = empMapLog[payload.employeeCode];
+    }
+    if (typeof writeDailyReportAccessLog === "function") {
+      writeDailyReportAccessLog({
+        dateStr: dateStr,
+        role: role,
+        userId: payload.userId || "",
+        employeeCode: payload.employeeCode || "",
+        employeeName: empNameForLog,
+        storeIds: storeIds
+      });
+    }
+  } catch (eLog) {}
+
   return jsonOut({
     status: "ok",
     role: role,

@@ -29,8 +29,8 @@
     padding: 0.75rem;
     margin-bottom: 0.75rem;
   }
-  .bubble-cat-wrapper .store-header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
-  .bubble-cat-wrapper .store-date { font-size: 0.85rem; color: #666; }
+  .bubble-cat-wrapper .store-header { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
+  .bubble-cat-wrapper .store-header .store-date { align-self: flex-start; font-size: 0.85rem; color: #666; }
   .bubble-cat-wrapper .kv { display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.95rem; }
   .bubble-cat-wrapper .tag { background: #f0f0f0; padding: 0.15rem 0.5rem; border-radius: 4px; }
   .bubble-cat-wrapper .list { margin: 0.25rem 0 0; padding-left: 1.2rem; }
@@ -85,24 +85,46 @@
       var el = document.getElementById("status");
       var bar = document.getElementById("loading-bar-inner");
       if (!el || !bar) return null;
-      var remaining = totalSeconds;
       bar.style.width = "0%";
-      el.innerHTML = '正在載入…（' + remaining + 's）<div class="loading-bar"><div id="loading-bar-inner"></div></div>';
+      el.innerHTML = '正在載入…<div class="loading-bar"><div id="loading-bar-inner"></div></div>';
       bar = document.getElementById("loading-bar-inner");
+      var start = Date.now();
+      var maxProgress = 92;
       var timer = setInterval(function () {
-        remaining -= 1;
-        if (remaining <= 0) {
+        var elapsed = (Date.now() - start) / 1000;
+        if (elapsed >= totalSeconds) {
           clearInterval(timer);
-          remaining = 0;
+          if (bar) bar.style.width = maxProgress + "%";
+          return;
         }
-        var progress = ((totalSeconds - remaining) / totalSeconds) * 100;
+        var t = elapsed / totalSeconds;
+        var progress = maxProgress * (1 - Math.pow(1 - t, 1.2)) + (Math.sin(elapsed * 0.5) * 2);
+        if (progress > maxProgress) progress = maxProgress;
+        if (progress < 0) progress = 0;
         if (bar) bar.style.width = progress + "%";
-        if (el) el.childNodes[0].nodeValue = '正在載入…（' + remaining + 's）';
-      }, 1000);
+      }, 120);
       return timer;
     }
 
-    function renderStoreBlock(store, dateText) {
+    function avgTicketColor(storeAvg, globalAvg) {
+      if (globalAvg == null || globalAvg === 0) return "";
+      var store = Number(storeAvg) || 0;
+      var global = Number(globalAvg) || 0;
+      var ratio = (store - global) / global;
+      var r, g, b;
+      if (ratio <= 0) {
+        r = 255;
+        g = b = Math.round(200 * (1 + ratio));
+        if (g < 0) g = 0; if (b < 0) b = 0;
+      } else {
+        g = 255;
+        r = b = Math.round(200 * (1 - ratio));
+        if (r < 0) r = 0; if (b < 0) b = 0;
+      }
+      return "rgb(" + r + "," + g + "," + b + ")";
+    }
+
+    function renderStoreBlock(store, dateText, globalAvg) {
       var adv = store.advancedCounts || {};
       var empAdv = store.employeeAdvancedCounts || {};
       var pay = store.paymentSummary || null;
@@ -113,24 +135,26 @@
       }).join(" ");
       var empLines = Object.keys(empAdv).map(function (k) {
         var courseMap = empAdv[k] || {};
-        var parts = Object.keys(courseMap).map(function (c) { return c + ":" + courseMap[c]; }).join(" ");
-        return '<li>' + k + (parts ? (" " + parts) : "") + '</li>';
+        var parts = advOrder.map(function (c) { return c + ":" + (courseMap[c] || 0); }).join(" ");
+        return '<li>' + k + " " + parts + '</li>';
       }).join("");
-      var payHtml = "";
-      if (pay) {
-        payHtml =
-          '<div class="pay-grid">' +
-            '<div class="pay-item">現金總額(勿動)：' + pay.cashTotal + '</div>' +
-            '<div class="pay-item">消費紀錄(現金)：' + pay.cashBusiness + '</div>' +
-            '<div class="pay-item">儲值(現金)：' + pay.cashUnearn + '</div>' +
-            '<div class="pay-item">第三方支付總額(勿動)：' + pay.thirdPayTotal + '</div>' +
-            '<div class="pay-item">消費紀錄(轉帳)：' + pay.transferRecord + '</div>' +
-            '<div class="pay-item">消費紀錄(line)：' + pay.lineRecord + '</div>' +
-            '<div class="pay-item">儲值(轉帳)：' + pay.transferUnearn + '</div>' +
-            '<div class="pay-item">儲值(line)：' + pay.lineUnearn + '</div>' +
-            '<div class="pay-item">業績：' + (pay.todayService || 0) + '</div>' +
-          '</div>';
-      }
+      var payLabels = [
+        { key: "cashTotal", label: "現金總額(勿動)" },
+        { key: "cashBusiness", label: "消費紀錄(現金)" },
+        { key: "cashUnearn", label: "儲值(現金)" },
+        { key: "thirdPayTotal", label: "第三方支付總額(勿動)" },
+        { key: "transferRecord", label: "消費紀錄(轉帳)" },
+        { key: "lineRecord", label: "消費紀錄(line)" },
+        { key: "transferUnearn", label: "儲值(轉帳)" },
+        { key: "lineUnearn", label: "儲值(line)" },
+        { key: "todayService", label: "業績" }
+      ];
+      var payHtml = '<div class="pay-grid">' + payLabels.map(function (p) {
+        var val = (pay && pay[p.key] != null && pay[p.key] !== "") ? pay[p.key] : "－";
+        return '<div class="pay-item">' + p.label + "：" + val + '</div>';
+      }).join("") + '</div>';
+      var avgColor = avgTicketColor(store.avgTicket, globalAvg);
+      var avgStyle = avgColor ? (' style="color:' + avgColor + '"') : '';
       return (
         '<div class="store-block">' +
           '<div class="store-header">' +
@@ -139,10 +163,10 @@
           '</div>' +
           (payHtml ? ('<div class="small section-title">金流摘要</div>' + payHtml) : '') +
           '<div class="kv">' +
-            '<span class="tag">平均客單價: ' + (store.avgTicket || 0) + '</span>' +
+            '<span class="tag"' + avgStyle + '>平均客單價: ' + (store.avgTicket != null ? Number(store.avgTicket).toFixed(1) : '0.0') + '</span>' +
             '<span class="tag">訂單數: ' + (store.orderCount || 0) + '</span>' +
+            (advTags ? (' ' + advTags) : '') +
           '</div>' +
-          '<div class="kv" style="margin-top:0.4rem;">' + advTags + '</div>' +
           '<div class="section-title">同事進階課程件數</div>' +
           '<ul class="list two-col-list">' + (empLines || "<li>無資料</li>") + '</ul>' +
         '</div>'
@@ -171,14 +195,14 @@
       var items = list.map(function (x) {
         var stores = (x.stores && x.stores.length) ? ("（" + x.stores.join("、") + "）") : "";
         var name = x.employeeName ? (" " + x.employeeName) : "";
-        return '<li>' + x.employeeCode + name + '：' + x.avgTicket + ' / ' + x.orderCount + ' 單 ' + stores + '</li>';
+        return '<li>' + x.employeeCode + name + '：' + (x.avgTicket != null ? Number(x.avgTicket).toFixed(1) : '0.0') + ' / ' + x.orderCount + ' 單 ' + stores + '</li>';
       }).join("");
       return '<div class="section"><h3>全品牌平均客單 Top5</h3><ul class="list">' + items + '</ul></div>';
     }
 
     function renderGlobalAvg(avg) {
       if (avg == null) return "";
-      return '<div class="section"><h3>全台泡泡貓：平均客單價</h3><div class="tag">$' + avg + '</div></div>';
+      return '<div class="section"><h3>全台泡泡貓：平均客單價</h3><div class="tag">$' + (avg != null ? Number(avg).toFixed(1) : '') + '</div></div>';
     }
 
     function renderShareForm(sessionId) {
@@ -260,7 +284,7 @@
           daily.forEach(function (d) {
             var dateText = (d.dateStr && String(d.dateStr).indexOf("GMT") >= 0) ? new Date(d.dateStr).toISOString().slice(0, 10) : (d.dateStr || "");
             html += '<div class="section">';
-            (d.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText); });
+            (d.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText, d.globalAvgTicket); });
             html += renderGlobalAvg(d.globalAvgTicket);
             html += renderTopCourses(d.topCourses);
             html += '</div>';
@@ -268,7 +292,7 @@
         } else {
           html += '<div class="section"><h3>今日日報</h3></div>';
           var dateText = json.data && json.data.dateStr ? String(json.data.dateStr) : "";
-          (json.data && json.data.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText); });
+          (json.data && json.data.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText, json.data.globalAvgTicket); });
           html += renderGlobalAvg(json.data ? json.data.globalAvgTicket : null);
           html += renderTopCourses(json.data ? json.data.topCourses : null);
           html += renderTopAvgTicket(json.topAvgTicketEmployees);
