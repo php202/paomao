@@ -83,6 +83,26 @@ function reply(replyToken, content) {
     Core.sendLineReplyObj(replyToken, messages, LINE_TOKEN_PAOSTAFF);
   }
 }
+// Debug helper: 直接測試 Core.sendLineReply 是否可用
+function debugSendLineReply(replyToken, text, tokenOverride) {
+  var out = {
+    ok: false,
+    time: Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss"),
+    hasReplyToken: !!replyToken,
+    textLength: text ? String(text).length : 0,
+    hasToken: false,
+    error: ""
+  };
+  try {
+    var token = tokenOverride || LINE_TOKEN_PAOSTAFF;
+    out.hasToken = !!token;
+    Core.sendLineReply(replyToken, text || "debug", token);
+    out.ok = true;
+  } catch (e) {
+    out.error = e && e.message ? e.message : String(e);
+  }
+  return out;
+}
 // 與 Core 對齊：使用 Core.jsonResponse
 function outputJSON(data) {
   return Core.jsonResponse(data);
@@ -365,6 +385,15 @@ function doPost(e) {
       return outputJSON({ status: "failed", message: "No postData" });
     }
     const payload = JSON.parse(e.postData.contents);
+    // #region agent log
+    try {
+      console.log("[doPost payload summary]", {
+        hasAction: !!(payload && payload.action),
+        action: payload && payload.action ? String(payload.action) : "",
+        eventsCount: Array.isArray(payload && payload.events) ? payload.events.length : 0
+      });
+    } catch (e) {}
+    // #endregion
     // (A) 來自網頁的請求 (Action 分流)
     // 網頁請求需要等待結果，所以不能用快取鎖直接擋掉
     if (payload.action === "bind") {

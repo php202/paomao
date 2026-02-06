@@ -93,6 +93,8 @@ function handleRequest(params, method) {
         return actionGetCustomerAIResult(params);
       case "getCoreConfig":
         return actionGetCoreConfig();
+      case "getLineSayDouInfoMap":
+        return jsonOut({ status: "ok", data: getLineSayDouInfoMap() });
       case "lastMonthTipsReport":
         return actionLastMonthTipsReport(params);
       case "syncLastMonthTipsConsolidated":
@@ -103,12 +105,56 @@ function handleRequest(params, method) {
         return actionIssueInvoice(params);
       case "createReportToken":
         return actionCreateReportToken(params);
+      case "findAvailableSlots":
+        return actionFindAvailableSlots(params);
+      case "debugLineStoreMap":
+        return jsonOut({ status: "ok", data: debugLineStoreMap() });
       default:
         return jsonOut({ status: "error", message: "未知 action: " + action });
     }
   } catch (err) {
     return jsonOut({ status: "error", message: (err && err.message) ? err.message : String(err) });
   }
+}
+
+// Debug helper: 直接讀取店家基本資料（不走快取）
+function debugLineStoreMap() {
+  var out = {
+    time: Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss"),
+    lineStoreSsId: LINE_STORE_SS_ID || "",
+    sheetId: 72760104,
+    sheetName: "",
+    lastRow: 0,
+    total: 0,
+    sample: [],
+    error: ""
+  };
+  try {
+    var ss = SpreadsheetApp.openById(LINE_STORE_SS_ID);
+    var sheet = ss.getSheetById(72760104) || ss.getSheetByName("店家基本資料");
+    if (!sheet) {
+      out.error = "sheet not found";
+      return out;
+    }
+    out.sheetName = sheet.getName();
+    out.lastRow = sheet.getLastRow();
+    if (out.lastRow >= 2) {
+      var data = sheet.getRange("A2:I" + out.lastRow).getValues();
+      data.forEach(function (row) {
+        var saydouId = row[5];
+        if (saydouId != null && String(saydouId).trim() !== "") {
+          var sId = String(saydouId).trim();
+          out.total++;
+          if (out.sample.length < 20) {
+            out.sample.push({ saydouId: sId, name: String(row[1] || "").trim() });
+          }
+        }
+      });
+    }
+  } catch (e) {
+    out.error = e && e.message ? e.message : String(e);
+  }
+  return out;
 }
 
 function tokenResponse() {
@@ -180,6 +226,39 @@ function actionFetchDailyIncome(params) {
   }
   var data = fetchDailyIncome(String(date), String(storeId));
   return jsonOut({ status: "ok", data: data });
+}
+
+/**
+ * Core API：查詢店家可預約時段
+ * GET: ?key=密鑰&action=findAvailableSlots&sayId=...&startDate=yyyy-MM-dd&endDate=yyyy-MM-dd
+ * 可選：needPeople, durationMin, weekDays(JSON), timeStart, timeEnd, token
+ */
+function actionFindAvailableSlots(params) {
+  var sayId = params.sayId;
+  var startDate = params.startDate;
+  var endDate = params.endDate;
+  if (sayId == null || startDate == null || endDate == null) {
+    return jsonOut({ status: "error", message: "缺少 sayId, startDate 或 endDate" });
+  }
+  var needPeople = (params.needPeople != null && params.needPeople !== "") ? Number(params.needPeople) : 1;
+  var durationMin = (params.durationMin != null && params.durationMin !== "") ? Number(params.durationMin) : 90;
+  var options = {};
+  if (params.weekDays != null && params.weekDays !== "") {
+    try {
+      options.weekDays = (typeof params.weekDays === "string") ? JSON.parse(params.weekDays) : params.weekDays;
+    } catch (e) {
+      return jsonOut({ status: "error", message: "weekDays 解析失敗" });
+    }
+  }
+  if (params.timeStart != null && params.timeStart !== "") options.timeStart = String(params.timeStart);
+  if (params.timeEnd != null && params.timeEnd !== "") options.timeEnd = String(params.timeEnd);
+  if (params.token != null && params.token !== "") options.token = String(params.token);
+  try {
+    var result = findAvailableSlots(String(sayId), String(startDate), String(endDate), needPeople, durationMin, options);
+    return jsonOut({ status: "ok", result: result });
+  } catch (err) {
+    return jsonOut({ status: "error", message: (err && err.message) ? err.message : String(err) });
+  }
 }
 
 /**
@@ -296,7 +375,22 @@ function actionLineReply(params) {
     return jsonOut({ status: "error", message: "缺少 replyToken 或 token" });
   }
   try {
-    sendLineReply(replyToken, text, token);
+    if (params.messages != null) {
+      var messages = params.messages;
+      if (typeof messages === "string") {
+        try {
+          messages = JSON.parse(messages);
+        } catch (eJson) {
+          return jsonOut({ status: "error", message: "messages 解析失敗" });
+        }
+      }
+      if (!Array.isArray(messages) || messages.length === 0) {
+        return jsonOut({ status: "error", message: "messages 必須為非空陣列" });
+      }
+      sendLineReplyObj(replyToken, messages, token);
+    } else {
+      sendLineReply(replyToken, text, token);
+    }
     return jsonOut({ status: "ok" });
   } catch (err) {
     return jsonOut({ status: "error", message: (err && err.message) ? err.message : String(err) });

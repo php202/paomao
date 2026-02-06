@@ -5,6 +5,7 @@
  */
 var CoreApi = (function () {
   var _configCache = null;
+  var _lastDebugResult = null;
 
   function getApiConfig() {
     var props = PropertiesService.getScriptProperties();
@@ -147,6 +148,40 @@ var CoreApi = (function () {
         throw new Error(r.message || "syncLastMonthTipsConsolidated 失敗");
       }
       return r;
+    },
+    // Debug helper: 測試 Core API 連線與 action 是否可用
+    debugTest: function () {
+      var out = {
+        ok: false,
+        time: Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss"),
+        url: "",
+        actions: {},
+        error: ""
+      };
+      try {
+        var cfg = getApiConfig();
+        out.url = cfg.url || "";
+      } catch (eCfg) {
+        out.error = eCfg && eCfg.message ? eCfg.message : String(eCfg);
+        _lastDebugResult = out;
+        return out;
+      }
+      try {
+        out.actions.getCoreConfig = callGet("getCoreConfig", {});
+      } catch (eCore) {
+        out.actions.getCoreConfig = { status: "error", message: eCore && eCore.message ? eCore.message : String(eCore) };
+      }
+      try {
+        out.actions.token = callGet("token", {});
+      } catch (eTok) {
+        out.actions.token = { status: "error", message: eTok && eTok.message ? eTok.message : String(eTok) };
+      }
+      out.ok = !!(out.actions.getCoreConfig && out.actions.getCoreConfig.status === "ok");
+      _lastDebugResult = out;
+      return out;
+    },
+    getLastDebugResult: function () {
+      return _lastDebugResult;
     }
   };
 })();

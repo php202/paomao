@@ -173,7 +173,7 @@ function getTodayAttendanceByStores(managedStores) {
   const day = today.getDate();
   const storeMap = Core.getLineSayDouInfoMap() || {};
   
-  const { employeesByLineId, employeesByStore } = formatManagedStores();
+  const { employeesByLineId, employeesByStore, employeesByStoreName } = formatManagedStores();
   
   // 顯示日期
   let msg = `📅 日期：${month + 1} 月 ${day} 日 的出勤紀錄\n\n`;
@@ -189,6 +189,9 @@ function getTodayAttendanceByStores(managedStores) {
     }
     
     let members = employeesByStore.get(storeId) || [];
+    if (members.length === 0 && storeInfo && storeInfo.name && employeesByStoreName) {
+      members = employeesByStoreName.get(String(storeInfo.name)) || [];
+    }
     if (members.length === 0) continue;
     
     let userIds = members.map(m => m.lineId).filter(id => id && id !== '#N/A');
@@ -260,4 +263,45 @@ function getTodayAttendanceByStores(managedStores) {
   console.log(msg);
   if (!hasData) return "查無負責店家的員工資料。";
   return msg;
+}
+
+// Debug helper: 檢查管理店家對應的員工名單
+function debugAttendanceStores(userId) {
+  var out = {
+    time: Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss"),
+    userIdSuffix: userId ? String(userId).slice(-6) : "",
+    managedStores: [],
+    storeMapSize: 0,
+    storeMapSample: [],
+    employeesByStoreSize: 0,
+    employeesByStoreNameSize: 0,
+    details: []
+  };
+  try {
+    var auth = isUserAuthorized(userId);
+    out.managedStores = auth && auth.managedStores ? auth.managedStores : [];
+    var storeMap = Core.getLineSayDouInfoMap() || {};
+    var storeKeys = Object.keys(storeMap);
+    out.storeMapSize = storeKeys.length;
+    out.storeMapSample = storeKeys.slice(0, 10);
+    var maps = formatManagedStores();
+    out.employeesByStoreSize = maps.employeesByStore ? maps.employeesByStore.size : 0;
+    out.employeesByStoreNameSize = maps.employeesByStoreName ? maps.employeesByStoreName.size : 0;
+    (out.managedStores || []).forEach(function (ms) {
+      var storeId = String(ms || "").trim();
+      var storeInfo = storeMap[storeId];
+      var name = storeInfo && storeInfo.name ? storeInfo.name : "";
+      var membersById = maps.employeesByStore.get(storeId) || [];
+      var membersByName = name ? (maps.employeesByStoreName.get(name) || []) : [];
+      out.details.push({
+        storeId: storeId,
+        storeName: name,
+        membersById: membersById.length,
+        membersByName: membersByName.length
+      });
+    });
+  } catch (e) {
+    out.error = e && e.message ? e.message : String(e);
+  }
+  return out;
 }

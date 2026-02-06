@@ -477,7 +477,14 @@ function syncSingleTipsResponseToConsolidated(obj, rawRow) {
   var ssId = (typeof TIPS_CONSOLIDATED_SS_ID !== 'undefined' && TIPS_CONSOLIDATED_SS_ID) ? String(TIPS_CONSOLIDATED_SS_ID).trim() : '';
   var gid = typeof TIPS_CONSOLIDATED_SHEET_GID !== 'undefined' ? TIPS_CONSOLIDATED_SHEET_GID : 1727178779;
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:407',message:'syncSingle entry',data:{hasObj:!!obj,rawLen:rawRow?rawRow.length:0,ssIdSet:!!ssId,gid:gid},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2'})}).catch(()=>{});
+  try {
+    console.log("[syncSingle entry]", {
+      hasObj: !!obj,
+      rawLen: rawRow ? rawRow.length : 0,
+      ssIdSet: !!ssId,
+      gid: gid
+    });
+  } catch (e) {}
   // #endregion
   if (!ssId) {
     return { ok: false, message: '未設定小費統整表試算表 TIPS_CONSOLIDATED_SS_ID（來源需拉對）' };
@@ -486,7 +493,12 @@ function syncSingleTipsResponseToConsolidated(obj, rawRow) {
   var findLatestFn = typeof findLatestConsumptionBefore === 'function' ? findLatestConsumptionBefore : (typeof Core !== 'undefined' && Core.findLatestConsumptionBefore ? Core.findLatestConsumptionBefore : null);
   if (!getMemApiFn || !findLatestFn) {
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:415',message:'syncSingle missing core functions',data:{hasGetMemApi:!!getMemApiFn,hasFindLatest:!!findLatestFn},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3'})}).catch(()=>{});
+    try {
+      console.log("[syncSingle missing core functions]", {
+        hasGetMemApi: !!getMemApiFn,
+        hasFindLatest: !!findLatestFn
+      });
+    } catch (e) {}
     // #endregion
     return { ok: false, message: 'getMemApi 或 findLatestConsumptionBefore 未定義' };
   }
@@ -503,7 +515,9 @@ function syncSingleTipsResponseToConsolidated(obj, rawRow) {
     }
     if (!sheet) {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:428',message:'syncSingle sheet not found',data:{gid:gid},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2'})}).catch(()=>{});
+      try {
+        console.log("[syncSingle sheet not found]", { gid: gid });
+      } catch (e) {}
       // #endregion
       return { ok: false, message: '找不到小費統整表 gid=' + gid };
     }
@@ -518,12 +532,23 @@ function syncSingleTipsResponseToConsolidated(obj, rawRow) {
   var qtTime = parseFormTimestamp(obj['時間戳記']);
   var qtMs = qtTime ? qtTime.getTime() : 0;
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:438',message:'syncSingle lookup inputs',data:{phoneEmpty:!phone,hasQtMs:!!qtMs},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4'})}).catch(()=>{});
+  try {
+    console.log("[syncSingle lookup inputs]", {
+      phoneEmpty: !phone,
+      hasQtMs: !!qtMs
+    });
+  } catch (e) {}
   // #endregion
   var member = phone ? getMemApiFn(phone) : null;
   var consumption = member && member.membid && qtMs ? findLatestFn(member.membid, qtMs) : null;
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/a6b25e3c-5c96-45b2-80e4-5bfce25a8610',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TipsReport.js:441',message:'syncSingle lookup results',data:{memberFound:!!member,hasMembid:!!(member&&member.membid),consumptionFound:!!consumption},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4'})}).catch(()=>{});
+  try {
+    console.log("[syncSingle lookup results]", {
+      memberFound: !!member,
+      hasMembid: !!(member && member.membid),
+      consumptionFound: !!consumption
+    });
+  } catch (e) {}
   // #endregion
   var itemsText = '';
   var remarkText = '';

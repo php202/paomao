@@ -30,11 +30,20 @@ function getBankInfoMap() {
 function getLineSayDouInfoMap() {
   const cache = CacheService.getScriptCache();
   const cached = cache.get("MAP_SAYDOU_INFO");
-  if (cached) return JSON.parse(cached);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && Object.keys(parsed).length > 0) return parsed;
+      // 若快取是空物件，改為重建
+    } catch (e) {
+      // ignore cache parse error, rebuild below
+    }
+  }
 
   const map = {};
   const ss = SpreadsheetApp.openById(LINE_STORE_SS_ID);
-  const sheet = ss.getSheetByName('店家基本資料');
+  const sheetId = 72760104;
+  const sheet = ss.getSheetById(sheetId) || ss.getSheetByName('店家基本資料');
   if (!sheet) return map;
 
   // 注意：這裡取到 I 欄，確保欄位數量足夠
@@ -58,8 +67,50 @@ function getLineSayDouInfoMap() {
       };
     }
   });
-  cache.put("MAP_SAYDOU_INFO", JSON.stringify(map), 21600);
+  // 只有有資料時才快取，避免空值卡住
+  if (Object.keys(map).length > 0) {
+    cache.put("MAP_SAYDOU_INFO", JSON.stringify(map), 21600);
+  }
   return map;
+}
+
+// Debug helper: 檢查 LINE_STORE_SS_ID 與店家基本資料分頁
+function debugLineStoreSheet() {
+  var out = {
+    time: Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss"),
+    lineStoreSsId: LINE_STORE_SS_ID || "",
+    sheetId: 72760104,
+    sheetById: false,
+    sheetByName: false,
+    sheetName: "",
+    lastRow: 0,
+    error: ""
+  };
+  try {
+    var ss = SpreadsheetApp.openById(LINE_STORE_SS_ID);
+    var byId = ss.getSheetById(72760104);
+    var byName = ss.getSheetByName("店家基本資料");
+    out.sheetById = !!byId;
+    out.sheetByName = !!byName;
+    var sheet = byId || byName;
+    if (sheet) {
+      out.sheetName = sheet.getName();
+      out.lastRow = sheet.getLastRow();
+    }
+  } catch (e) {
+    out.error = e && e.message ? e.message : String(e);
+  }
+  return out;
+}
+
+// Debug helper: 清除店家對照表快取
+function clearLineStoreMapCache() {
+  try {
+    CacheService.getScriptCache().remove("MAP_SAYDOU_INFO");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
 }
 function getStoresInfo() {
   const storeMap = getLineSayDouInfoMap();

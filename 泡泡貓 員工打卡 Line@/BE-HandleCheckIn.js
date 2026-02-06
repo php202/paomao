@@ -7,6 +7,17 @@ function handleCheckInAPI(jsonData) {
     const userId = jsonData.userId;
     const uuid = jsonData.uuid;
     const frontUuid = jsonData.frontUuid;
+    // #region agent log
+    try {
+      console.log("[handleCheckInAPI entry]", {
+        userIdSuffix: userId ? String(userId).slice(-6) : "",
+        uuidTail: uuid ? String(uuid).slice(-8) : "",
+        frontUuidTail: frontUuid ? String(frontUuid).slice(-8) : "",
+        latRound: isNaN(lat) ? null : Math.round(lat * 100) / 100,
+        lonRound: isNaN(lon) ? null : Math.round(lon * 100) / 100
+      });
+    } catch (e) {}
+    // #endregion
     
     // 1. 基礎資料驗證
     if (!userId || !uuid || !frontUuid) {
@@ -22,6 +33,16 @@ function handleCheckInAPI(jsonData) {
 
     // 3. 取得 Sheet 資料
     const ticket = getUuidRowData(uuid);
+    // #region agent log
+    try {
+      console.log("[ticket lookup result]", {
+        uuidTail: uuid ? String(uuid).slice(-8) : "",
+        found: !!ticket,
+        hasAction: !!(ticket && ticket.action),
+        hasFrontUuid: !!(ticket && ticket.frontUuid)
+      });
+    } catch (e) {}
+    // #endregion
     if (!ticket) return responseJSON({ status: "failed", text: "連結無效 (找不到 UUID)" });
 
     // ==========================================
@@ -51,6 +72,16 @@ function handleCheckInAPI(jsonData) {
 
     // 5. 距離驗證
     const checkResult = checkLocation(lat, lon); // 假設此函式在外部定義
+    // #region agent log
+    try {
+      console.log("[distance check result]", {
+        uuidTail: uuid ? String(uuid).slice(-8) : "",
+        hasResult: Array.isArray(checkResult) && checkResult.length > 0,
+        nearestDistance: checkResult && checkResult.length > 0 ? checkResult[0].distance : null,
+        pass: checkResult && checkResult.length > 0 ? checkResult[0].distance <= 0.1 : false
+      });
+    } catch (e) {}
+    // #endregion
     // 距離容許值 (0.1 = 100公尺)
     if (checkResult.length === 0 || checkResult[0].distance > 0.1) { 
       updateWrongByUuid(uuid, userId, lat, lon);
@@ -86,6 +117,15 @@ function handleCheckInAPI(jsonData) {
     // 7. 寫入資料庫
     const resultValues = [userId, timestamp, punchType, checkResult[0].name];
     updateRowData(uuid, resultValues);
+    // #region agent log
+    try {
+      console.log("[check-in success write]", {
+        uuidTail: uuid ? String(uuid).slice(-8) : "",
+        punchType: punchType,
+        store: checkResult && checkResult.length > 0 ? checkResult[0].name : ""
+      });
+    } catch (e) {}
+    // #endregion
 
     return responseJSON({ 
       status: "success", 
@@ -101,6 +141,16 @@ function handleBindSession(json) {
   const frontUuid = json.frontUuid;
   
   console.log(`[Bind] 收到綁定請求: UUID=${uuid}, Front=${frontUuid}`);
+  // #region agent log
+  try {
+    console.log("[handleBindSession entry]", {
+      uuidTail: uuid ? String(uuid).slice(-8) : "",
+      frontUuidTail: frontUuid ? String(frontUuid).slice(-8) : "",
+      hasUuid: !!uuid,
+      hasFrontUuid: !!frontUuid
+    });
+  } catch (e) {}
+  // #endregion
 
   // 1. 取得票券資料
   const ticket = getUuidRowData(uuid);

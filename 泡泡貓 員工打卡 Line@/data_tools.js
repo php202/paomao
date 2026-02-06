@@ -19,7 +19,8 @@ function formatManagedStores() {
 
   // 3. 初始化 Maps
   const byLineId = new Map(); // 原本的 employeeMap
-  const byStore = new Map();  // 原本的 employeeMaps
+  const byStore = new Map();  // 原本的 employeeMaps (key: saydouId)
+  const byStoreName = new Map(); // key: 店名 (員工清單 B 欄)
 
   // 4. 單次迴圈處理 (從 index 1 開始跳過標題列，若無標題則從 0)
   for (let i = 1; i < data.length; i++) {
@@ -40,21 +41,31 @@ function formatManagedStores() {
     }
 
     // --- 分類 B: 依照 Store ---
-    // 確保有店名才存入
-    if (store) {
-      const storeKey = String(saydouId); // 轉字串避免數字店號問題
-      
+    // 依 saydouId
+    if (saydouId != null && saydouId !== "") {
+      const storeKey = String(saydouId);
       if (!byStore.has(storeKey)) {
         byStore.set(storeKey, []);
       }
       byStore.get(storeKey).push(empData);
     }
+    // 依店名（備援）
+    if (store) {
+      const nameKey = String(store).trim();
+      if (nameKey) {
+        if (!byStoreName.has(nameKey)) {
+          byStoreName.set(nameKey, []);
+        }
+        byStoreName.get(nameKey).push(empData);
+      }
+    }
   }
   // 5. 回傳結果 (建議改用更直觀的 Key 名稱)
 
   return { 
-    employeesByStore: byStore,  // 為了相容舊程式碼保留 key，建議未來改名 employeesByStore
-    employeesByLineId: byLineId   // 建議未來改名 employeesByLineId
+    employeesByStore: byStore,
+    employeesByStoreName: byStoreName,
+    employeesByLineId: byLineId
   };
 }
 
@@ -153,10 +164,12 @@ function isDuplicatedEvent(eventId) {
 // 📝 將錯誤寫入 Google Sheet
 function logErrorToSheet(userId, userMessage, error) {
   try {
-    // 取得試算表 (使用全域變數 LINE_STAFF_SS_ID)
-    const ss = SpreadsheetApp.openById(LINE_STAFF_SS_ID);
+    // 固定寫入除錯清單（專用試算表/分頁）
+    const DEBUG_LOG_SS_ID = "1GH2XbihFIY0AX8SMF9Tk6igrVKPpA_vMJVlkDkJjpe4";
+    const DEBUG_LOG_SHEET_ID = 565313461;
     const sheetName = "系統除錯紀錄";
-    let sheet = ss.getSheetByName(sheetName);
+    const ss = SpreadsheetApp.openById(DEBUG_LOG_SS_ID);
+    let sheet = ss.getSheetById(DEBUG_LOG_SHEET_ID) || ss.getSheetByName(sheetName);
     
     // 如果沒有這個分頁，自動建立並加上標題
     if (!sheet) {

@@ -78,6 +78,10 @@ function sendAtt(replyToken, userId, message) {
       return;
     }
     const text = findAvailableList(managedStores);
+    if (!text || String(text).trim() === "") {
+      reply(replyToken, "查無可預約時間。");
+      return;
+    }
     reply(replyToken, text);
     return;
   }
