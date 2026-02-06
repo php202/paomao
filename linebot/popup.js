@@ -1,7 +1,52 @@
 // ▼▼▼ 請將這裡換成您剛剛部署 GAS 產生的網址 (exec 結尾) ▼▼▼
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzY1xtm_Y6JKDTgf_qDXHJHDCs5ucrLk0qqX0J4Do2_y8A4JO7VJ_aBiL_HbzLk_ZkN/exec";
 
-let currentBotId = null; 
+/** 未處理訊息超過此數量即顯示紅字「客人正在看著你」 */
+const UNREAD_WARNING_THRESHOLD = 5;
+
+/** 常用文字預設內容（可自行修改，會存到 chrome.storage） */
+const DEFAULT_QUICK_REPLY = `🔸近期人氣No.1 👉 活氧泡泡課程 🔸
+結合「小氣泡＋水光肌」再升級，添加【舒敏凍晶粉】
+✨保濕力更UP、活性最強✨
+`;
+
+let currentBotId = null;
+
+function updateMsgStatus(unprocessedCount) {
+  const el = document.getElementById('msg-status');
+  if (!el) return;
+  el.classList.remove('msg-status--danger', 'msg-status--success', 'msg-status--neutral');
+  if (unprocessedCount === 0) {
+    el.style.display = 'block';
+    el.className = 'msg-status msg-status--success';
+    el.textContent = '✓ 客人很高興 · 大家都覺得你很棒！';
+  } else if (unprocessedCount >= UNREAD_WARNING_THRESHOLD) {
+    el.style.display = 'block';
+    el.className = 'msg-status msg-status--danger';
+    el.textContent = `未處理 ${unprocessedCount} 則 · 客人正在看著你`;
+  } else {
+    el.style.display = 'block';
+    el.className = 'msg-status msg-status--neutral';
+    el.textContent = `未處理的訊息：${unprocessedCount} 則`;
+  }
+}
+
+function hideMsgStatus() {
+  const el = document.getElementById('msg-status');
+  if (el) el.style.display = 'none';
+}
+
+/** 是否為需優先處理的訊息：含時間格式（6:00、1930、0800、8.00、8點）或關鍵字（預約、有嗎、呼叫、位） */
+function isPriorityMsg(msg) {
+  const s = String(msg || '').trim();
+  if (!s) return false;
+  if (/預約|有嗎|呼叫|位/.test(s)) return true;
+  if (/\d{1,2}:\d{2}/.test(s)) return true;   // 6:00, 12:30
+  if (/\b(0?[0-9]|1[0-9]|2[0-3])[0-5][0-9]\b/.test(s)) return true; // 0800, 1930
+  if (/\d{1,2}\.\d{2}/.test(s)) return true; // 8.00
+  if (/\d{1,2}點/.test(s)) return true;      // 8點
+  return false;
+} 
 
 async function refreshData() {
   const storeNameDiv = document.getElementById('store-name');
@@ -35,12 +80,15 @@ async function refreshData() {
     listDiv.innerHTML = '<div style="padding:10px; color:#999; text-align:center;">請切換到 LINE OA 後台</div>';
     document.querySelector('.availability-section').style.display = 'none';
     document.querySelector('.booking-section').style.display = 'none';
+    document.querySelector('.quick-reply-section').style.display = 'none';
     document.querySelector('.search-box').style.display = 'none';
+    hideMsgStatus();
     return;
   }
 
   document.querySelector('.availability-section').style.display = 'block';
   document.querySelector('.booking-section').style.display = 'block';
+  document.querySelector('.quick-reply-section').style.display = 'block';
   document.querySelector('.search-box').style.display = 'block';
 
   const match = tab.url.match(/chat\.line\.biz\/(U[a-f0-9]{32})/);
@@ -74,6 +122,7 @@ async function fetchMsgList(botId) {
     if (data.error) {
       storeNameDiv.textContent = `無法識別店家`;
       listDiv.innerHTML = `<div style="text-align:center;color:red;">${data.error}</div>`;
+      hideMsgStatus();
       return;
     }
 
@@ -84,6 +133,7 @@ async function fetchMsgList(botId) {
     const list = (data && Array.isArray(data.data)) ? data.data : [];
     if (list.length === 0) {
       listDiv.innerHTML = '<div style="text-align:center;color:#999;margin-top:20px;">🎉 目前沒有未處理訊息</div>';
+      updateMsgStatus(0);
       return;
     }
 
@@ -94,6 +144,17 @@ async function fetchMsgList(botId) {
       seen.add(key);
       return true;
     });
+
+    // 優先處理：含時間格式（6:00、1930、0800、8.00、8點）或關鍵字（預約、有嗎、呼叫、位）排最上面
+    uniqueData.sort((a, b) => {
+      const pa = isPriorityMsg(a.msg);
+      const pb = isPriorityMsg(b.msg);
+      if (pa && !pb) return -1;
+      if (!pa && pb) return 1;
+      return 0;
+    });
+
+    updateMsgStatus(uniqueData.length);
 
     uniqueData.forEach(item => {
       const div = document.createElement('div');
@@ -150,7 +211,9 @@ async function fetchMsgList(botId) {
         try {
           await fetch(`${GAS_API_URL}?action=delete&row=${row}&operator_name=${encodeURIComponent(operatorName)}`);
           card.remove();
-          if (listDiv.children.length === 0) listDiv.innerHTML = '<div style="text-align:center;color:#999;margin-top:20px;">全部處理完畢！</div>';
+          const remaining = listDiv.querySelectorAll('.msg-item').length;
+          updateMsgStatus(remaining);
+          if (remaining === 0) listDiv.innerHTML = '<div style="text-align:center;color:#999;margin-top:20px;">全部處理完畢！</div>';
         } catch (err) {
           alert('連線失敗');
           card.style.opacity = '1';
@@ -171,6 +234,34 @@ function hhmmToMinutes(str) {
 document.addEventListener('DOMContentLoaded', () => {
   refreshData();
   document.getElementById('btn-reload-page').addEventListener('click', () => refreshData());
+
+  // ----------------------------------------------------
+  // 常用文字：可編輯、自動儲存、複製按鈕
+  // ----------------------------------------------------
+  const quickReplyText = document.getElementById('quick-reply-text');
+  const btnCopyQuick = document.getElementById('btn-copy-quick');
+  if (quickReplyText) {
+    chrome.storage.local.get('quick_reply_text', (result) => {
+      quickReplyText.value = (result.quick_reply_text && result.quick_reply_text.trim()) ? result.quick_reply_text : DEFAULT_QUICK_REPLY;
+    });
+    quickReplyText.addEventListener('change', () => {
+      chrome.storage.local.set({ quick_reply_text: quickReplyText.value });
+    });
+    quickReplyText.addEventListener('blur', () => {
+      chrome.storage.local.set({ quick_reply_text: quickReplyText.value });
+    });
+  }
+  if (btnCopyQuick && quickReplyText) {
+    btnCopyQuick.addEventListener('click', () => {
+      quickReplyText.select();
+      navigator.clipboard.writeText(quickReplyText.value).then(() => {
+        const orig = btnCopyQuick.textContent;
+        btnCopyQuick.textContent = '已複製！';
+        btnCopyQuick.style.backgroundColor = '#1b5e20';
+        setTimeout(() => { btnCopyQuick.textContent = orig; btnCopyQuick.style.backgroundColor = ''; }, 1500);
+      });
+    });
+  }
 
   // ----------------------------------------------------
   // [功能] 進階搜尋 (智慧過濾 + 純文字)

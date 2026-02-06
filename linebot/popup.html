@@ -51,7 +51,17 @@
     .btn-done { position: absolute; top: 5px; right: 5px; background: #fff; border: 1px solid #ccc; cursor: pointer; border-radius: 4px; padding: 2px 8px; font-size: 12px; }
     
     #loading { text-align: center; color: #999; display: none; margin-top: 20px;}
-    .slots-container { display:none; } 
+    .msg-status.msg-status--danger { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+    .msg-status.msg-status--success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+    .msg-status.msg-status--neutral { background: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
+    .slots-container { display:none; }
+
+    .quick-reply-section { background: #f0fff0; border-color: #a5d6a7; }
+    .quick-reply-section .section-title { font-size: 12px; font-weight: bold; color: #2e7d32; margin-bottom: 6px; }
+    #quick-reply-text { width: 100%; min-height: 72px; padding: 8px; border: 1px solid #a5d6a7; border-radius: 4px; font-size: 13px; line-height: 1.4; box-sizing: border-box; resize: vertical; font-family: inherit; }
+    #quick-reply-text:focus { outline: none; border-color: #00B900; }
+    .btn-copy-quick { background-color: #2e7d32; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; margin-top: 6px; width: 100%; }
+    .btn-copy-quick:hover { background-color: #1b5e20; }
   </style>
 </head>
 <body>
@@ -154,10 +164,18 @@
     </div>
   </div>
 
+  <div class="box-container quick-reply-section">
+    <div class="section-title">常用文字（可自行修改）</div>
+    <textarea id="quick-reply-text" placeholder="輸入常用回覆文字..."></textarea>
+    <button type="button" id="btn-copy-quick" class="btn-copy-quick">📋 複製</button>
+  </div>
+
   <div class="search-box">
     <input type="text" id="input-search" placeholder="搜尋名字或訊息...">
     <span class="search-icon" id="btn-clear-search" title="清除搜尋">✖</span>
   </div>
+
+  <div id="msg-status" class="msg-status" style="display: none; padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; font-weight: bold; font-size: 14px; text-align: center;"></div>
 
   <div id="loading">讀取資料中...</div>
   <div id="error"></div>

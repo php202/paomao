@@ -12,7 +12,6 @@
   },
   "action": {
     "default_title": "開啟客服小幫手"
-    // 注意：這裡移除了 "default_popup"，改由 background.js 控制開啟側邊欄
   },
   "icons": {
     "16": "icon.png",
@@ -20,3 +19,4 @@
     "128": "icon.png"
   }
 }
+
