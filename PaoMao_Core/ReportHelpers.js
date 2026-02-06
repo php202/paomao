@@ -968,7 +968,9 @@ function computeTopCoursesByStore_(storeMap, limit) {
     for (var j = 0; j < DAILY_REPORT_ADVANCED_KEYS.length; j++) {
       var k = DAILY_REPORT_ADVANCED_KEYS[j];
       var cnt = block.advancedCounts[k] || 0;
-      if (cnt > 0) result[k].push({ storeName: block.storeName, count: cnt });
+      if (cnt > 0) {
+        result[k].push({ storeId: storeId, storeName: normalizeStoreName_(storeId, block.storeName), count: cnt });
+      }
     }
   }
   for (var key2 in result) {

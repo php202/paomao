@@ -29,6 +29,8 @@
     padding: 0.75rem;
     margin-bottom: 0.75rem;
   }
+  .bubble-cat-wrapper .store-header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+  .bubble-cat-wrapper .store-date { font-size: 0.85rem; color: #666; }
   .bubble-cat-wrapper .kv { display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.95rem; }
   .bubble-cat-wrapper .tag { background: #f0f0f0; padding: 0.15rem 0.5rem; border-radius: 4px; }
   .bubble-cat-wrapper .list { margin: 0.25rem 0 0; padding-left: 1.2rem; }
@@ -36,6 +38,11 @@
   .bubble-cat-wrapper .pay-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.4rem 0.8rem; margin-top: 0.4rem; }
   .bubble-cat-wrapper .pay-item { font-size: 0.9rem; }
   .bubble-cat-wrapper .two-col-list { column-count: 2; column-gap: 1.5rem; }
+  .bubble-cat-wrapper .section-title { margin-top: 1rem; font-weight: 600; }
+  .bubble-cat-wrapper .divider { height: 1px; background: #eee; margin: 1rem 0; }
+  .bubble-cat-wrapper .top-courses-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem 1.2rem; }
+  .bubble-cat-wrapper .loading-bar { height: 6px; background: #e0e0e0; border-radius: 999px; overflow: hidden; margin-top: 0.5rem; }
+  .bubble-cat-wrapper .loading-bar > div { height: 100%; width: 0%; background: #1565c0; transition: width 1s linear; }
   .bubble-cat-wrapper textarea { width: 100%; min-height: 80px; padding: 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; }
   .bubble-cat-wrapper button { margin-top: 0.5rem; padding: 0.5rem 1rem; background: #2196f3; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
   .bubble-cat-wrapper button:disabled { background: #ccc; cursor: not-allowed; }
@@ -45,7 +52,10 @@
 <div class="bubble-cat-wrapper">
   <div class="bubble-cat-card">
     <h2>泡泡日報</h2>
-    <div id="status" class="state loading">正在載入…</div>
+    <div id="status" class="state loading">
+      正在載入…（60s）
+      <div class="loading-bar"><div id="loading-bar-inner"></div></div>
+    </div>
     <div id="content"></div>
   </div>
 </div>
@@ -71,13 +81,36 @@
       if (el) el.style.display = "none";
     }
 
+    function startCountdown(totalSeconds) {
+      var el = document.getElementById("status");
+      var bar = document.getElementById("loading-bar-inner");
+      if (!el || !bar) return null;
+      var remaining = totalSeconds;
+      bar.style.width = "0%";
+      el.innerHTML = '正在載入…（' + remaining + 's）<div class="loading-bar"><div id="loading-bar-inner"></div></div>';
+      bar = document.getElementById("loading-bar-inner");
+      var timer = setInterval(function () {
+        remaining -= 1;
+        if (remaining <= 0) {
+          clearInterval(timer);
+          remaining = 0;
+        }
+        var progress = ((totalSeconds - remaining) / totalSeconds) * 100;
+        if (bar) bar.style.width = progress + "%";
+        if (el) el.childNodes[0].nodeValue = '正在載入…（' + remaining + 's）';
+      }, 1000);
+      return timer;
+    }
+
     function renderStoreBlock(store, dateText) {
       var adv = store.advancedCounts || {};
       var empAdv = store.employeeAdvancedCounts || {};
       var pay = store.paymentSummary || null;
       var advOrder = ["活氧", "晶淨", "嘟唇", "逆齡", "頸緻"];
-      var advTags = advOrder.filter(function (k) { return adv[k]; })
-        .map(function (k) { return '<span class="tag">' + k + ': ' + adv[k] + '</span>'; }).join(" ");
+      var advTags = advOrder.map(function (k) {
+        var val = adv[k] || 0;
+        return '<span class="tag">' + k + ': ' + val + '</span>';
+      }).join(" ");
       var empLines = Object.keys(empAdv).map(function (k) {
         var courseMap = empAdv[k] || {};
         var parts = Object.keys(courseMap).map(function (c) { return c + ":" + courseMap[c]; }).join(" ");
@@ -100,14 +133,17 @@
       }
       return (
         '<div class="store-block">' +
-          '<div><strong>' + store.storeName + '</strong>' + (dateText ? (' <span class="small">(' + dateText + ')</span>') : '') + '</div>' +
-          (payHtml ? ('<div class="small" style="margin-top:0.4rem;">金流摘要</div>' + payHtml) : '') +
+          '<div class="store-header">' +
+            '<strong>' + store.storeName + '</strong>' +
+            (dateText ? ('<span class="store-date">' + dateText + '</span>') : '') +
+          '</div>' +
+          (payHtml ? ('<div class="small section-title">金流摘要</div>' + payHtml) : '') +
           '<div class="kv">' +
             '<span class="tag">平均客單價: ' + (store.avgTicket || 0) + '</span>' +
             '<span class="tag">訂單數: ' + (store.orderCount || 0) + '</span>' +
           '</div>' +
           '<div class="kv" style="margin-top:0.4rem;">' + advTags + '</div>' +
-          '<div style="margin-top:0.4rem;">同事進階課程件數</div>' +
+          '<div class="section-title">同事進階課程件數</div>' +
           '<ul class="list two-col-list">' + (empLines || "<li>無資料</li>") + '</ul>' +
         '</div>'
       );
@@ -117,7 +153,7 @@
       if (!topCourses) return "";
       var keys = Object.keys(topCourses);
       if (!keys.length) return "";
-      var html = '<div class="section"><h3>全台泡泡貓本日推廣排名</h3>';
+      var html = '<div class="section"><h3>全台泡泡貓本日推廣排名</h3><div class="top-courses-grid">';
       keys.forEach(function (k) {
         var list = topCourses[k] || [];
         if (!list.length) return;
@@ -126,7 +162,7 @@
         }).join("");
         html += '<div><strong>' + k + '</strong><ul class="list">' + items + '</ul></div>';
       });
-      html += '</div>';
+      html += '</div></div>';
       return html;
     }
 
@@ -142,7 +178,7 @@
 
     function renderGlobalAvg(avg) {
       if (avg == null) return "";
-      return '<div class="section"><strong>全台泡泡貓：平均客單價</strong> ' + avg + '</div>';
+      return '<div class="section"><h3>全台泡泡貓：平均客單價</h3><div class="tag">$' + avg + '</div></div>';
     }
 
     function renderShareForm(sessionId) {
@@ -204,13 +240,16 @@
     var fetchUrl = GAS_BASE_URL + (GAS_BASE_URL.indexOf("?") >= 0 ? "&" : "?") +
       "action=consumeReportToken&token=" + encodeURIComponent(token);
 
+    var countdown = startCountdown(60);
     fetch(fetchUrl, { method: "GET", redirect: "follow" })
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (!json || json.status !== "ok") {
+          if (countdown) clearInterval(countdown);
           showError((json && json.message) ? json.message : "連結已失效");
           return;
         }
+        if (countdown) clearInterval(countdown);
         clearStatus();
         var content = document.getElementById("content");
         if (!content) return;
@@ -222,16 +261,16 @@
             var dateText = (d.dateStr && String(d.dateStr).indexOf("GMT") >= 0) ? new Date(d.dateStr).toISOString().slice(0, 10) : (d.dateStr || "");
             html += '<div class="section">';
             (d.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText); });
-            html += renderTopCourses(d.topCourses);
             html += renderGlobalAvg(d.globalAvgTicket);
+            html += renderTopCourses(d.topCourses);
             html += '</div>';
           });
         } else {
           html += '<div class="section"><h3>今日日報</h3></div>';
           var dateText = json.data && json.data.dateStr ? String(json.data.dateStr) : "";
           (json.data && json.data.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText); });
-          html += renderTopCourses(json.data ? json.data.topCourses : null);
           html += renderGlobalAvg(json.data ? json.data.globalAvgTicket : null);
+          html += renderTopCourses(json.data ? json.data.topCourses : null);
           html += renderTopAvgTicket(json.topAvgTicketEmployees);
           if (json.canShare && json.shareSessionId) {
             html += renderShareForm(json.shareSessionId);
