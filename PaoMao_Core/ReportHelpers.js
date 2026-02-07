@@ -707,7 +707,7 @@ function buildRowsFromTransaction_(dateStr, store, t, empMap) {
       key,
       dateStr,
       String(store.id || ""),
-      String(store.name || ("店" + store.id)),
+      normalizeStoreName_(store.id, store.name || ("店" + store.id)),
       orderSn,
       orderId,
       detailId,

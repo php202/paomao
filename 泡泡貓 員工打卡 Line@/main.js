@@ -557,17 +557,47 @@ function routeMessageEvent(event) {
           }
           var reportUrl = getReportPageUrl();
           var fullUrl = reportUrl + (reportUrl.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(data.token);
-          reply(replyToken, [
-            {
-              type: "template",
-              altText: "神美日報：請點擊按鈕開啟日報（此連結僅可使用一次）",
-              template: {
-                type: "buttons",
-                text: "✅ 神美日報\n請點擊下方按鈕查看：\n\n（此連結僅可使用一次）",
-                actions: [{ type: "uri", label: "開啟日報", uri: fullUrl }]
+          var flexMessage = {
+            type: "flex",
+            altText: "神美日報：請點擊按鈕開啟日報（此連結僅可使用一次）",
+            contents: {
+              type: "bubble",
+              size: "m",
+              header: {
+                type: "box",
+                layout: "vertical",
+                contents: [
+                  { type: "text", text: "神美日報", weight: "bold", size: "lg", color: "#333333" }
+                ],
+                backgroundColor: "#E8F4FD",
+                paddingAll: "12px"
+              },
+              body: {
+                type: "box",
+                layout: "vertical",
+                contents: [
+                  { type: "text", text: "請點擊下方按鈕查看日報。", size: "sm", color: "#666666", wrap: true },
+                  { type: "text", text: "（此連結僅可使用一次）", size: "xs", color: "#999999", margin: "top" }
+                ],
+                paddingAll: "12px"
+              },
+              footer: {
+                type: "box",
+                layout: "vertical",
+                contents: [
+                  {
+                    type: "button",
+                    action: { type: "uri", label: "開啟日報", uri: fullUrl },
+                    style: "primary",
+                    color: "#0066CC",
+                    height: "sm"
+                  }
+                ],
+                paddingAll: "10px"
               }
             }
-          ]);
+          };
+          reply(replyToken, [flexMessage]);
           return;
         } catch (e) {
           console.warn("[神美日報] 失敗:", e);

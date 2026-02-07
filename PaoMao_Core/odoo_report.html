@@ -146,13 +146,13 @@
         { key: "transferRecord", label: "消費紀錄(轉帳)" },
         { key: "lineRecord", label: "消費紀錄(line)" },
         { key: "transferUnearn", label: "儲值(轉帳)" },
-        { key: "lineUnearn", label: "儲值(line)" },
-        { key: "todayService", label: "業績" }
+        { key: "lineUnearn", label: "儲值(line)" }
       ];
       var payHtml = '<div class="pay-grid">' + payLabels.map(function (p) {
         var val = (pay && pay[p.key] != null && pay[p.key] !== "") ? pay[p.key] : "－";
         return '<div class="pay-item">' + p.label + "：" + val + '</div>';
       }).join("") + '</div>';
+      var todayServiceVal = (pay && pay.todayService != null && pay.todayService !== "") ? pay.todayService : "－";
       var avgColor = avgTicketColor(store.avgTicket, globalAvg);
       var avgStyle = avgColor ? (' style="background-color:' + avgColor + ';color:#333"') : '';
       return (
@@ -161,9 +161,9 @@
             '<strong>' + store.storeName + '</strong>' +
             (dateText ? ('<span class="store-date">' + dateText + '</span>') : '') +
           '</div>' +
-          (payHtml ? ('<div class="small section-title">業績：</div>' + payHtml) : '') +
+          (payHtml ? ('<div class="small section-title">業績：' + todayServiceVal + '</div>' + payHtml) : '') +
           '<div class="kv">' +
-            '<span class="tag"' + avgStyle + '>平均客單價: ' + (store.avgTicket != null ? Number(store.avgTicket).toFixed(1) : '0.0') + '</span>' +
+            '<span class="tag"' + avgStyle + '>平均客單價: $' + (store.avgTicket != null ? Number(store.avgTicket).toFixed(1) : '0.0') + '</span>' +
             '<span class="tag">訂單數: ' + (store.orderCount || 0) + '</span>' +
             (advTags ? (' ' + advTags) : '') +
           '</div>' +

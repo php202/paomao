@@ -109,6 +109,8 @@ function handleRequest(params, method) {
         return actionFindAvailableSlots(params);
       case "debugLineStoreMap":
         return jsonOut({ status: "ok", data: debugLineStoreMap() });
+      case "getUserDisplayName":
+        return actionGetUserDisplayName(params);
       default:
         return jsonOut({ status: "error", message: "未知 action: " + action });
     }
@@ -361,6 +363,25 @@ function actionGetCoreConfig() {
     return jsonOut({ status: "error", message: "getCoreConfig 未定義（請確認 Config.js 已加入專案）" });
   }
   return jsonOut({ status: "ok", data: getCoreConfig() });
+}
+
+/**
+ * 依 LINE userId 取得 displayName（供請求員工ID 等試算表填 C 欄 LINE 暱稱）
+ * 參數：userId, token（必填）；groupId, roomId 可選（群組/聊天室時傳入）
+ */
+function actionGetUserDisplayName(params) {
+  var userId = (params.userId != null) ? String(params.userId).trim() : "";
+  var token = (params.token != null) ? String(params.token).trim() : "";
+  var groupId = (params.groupId != null) ? String(params.groupId).trim() : "";
+  var roomId = (params.roomId != null) ? String(params.roomId).trim() : "";
+  if (!userId || !token) {
+    return jsonOut({ status: "error", message: "缺少 userId 或 token" });
+  }
+  if (typeof getUserDisplayName !== "function") {
+    return jsonOut({ status: "error", message: "getUserDisplayName 未定義（請確認 LineBot.js 已加入專案）" });
+  }
+  var displayName = getUserDisplayName(userId, groupId, roomId, token);
+  return jsonOut({ status: "ok", displayName: displayName });
 }
 
 /**
