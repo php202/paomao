@@ -114,12 +114,12 @@
       var r, g, b;
       if (ratio <= 0) {
         r = 255;
-        g = b = Math.round(200 * (1 + ratio));
-        if (g < 0) g = 0; if (b < 0) b = 0;
+        g = b = Math.round(180 + 75 * (1 + ratio));
+        if (g < 180) g = 180; if (b < 180) b = 180;
       } else {
         g = 255;
-        r = b = Math.round(200 * (1 - ratio));
-        if (r < 0) r = 0; if (b < 0) b = 0;
+        r = b = Math.round(180 + 75 * (1 - ratio));
+        if (r < 180) r = 180; if (b < 180) b = 180;
       }
       return "rgb(" + r + "," + g + "," + b + ")";
     }
@@ -154,7 +154,7 @@
         return '<div class="pay-item">' + p.label + "：" + val + '</div>';
       }).join("") + '</div>';
       var avgColor = avgTicketColor(store.avgTicket, globalAvg);
-      var avgStyle = avgColor ? (' style="color:' + avgColor + '"') : '';
+      var avgStyle = avgColor ? (' style="background-color:' + avgColor + ';color:#333"') : '';
       return (
         '<div class="store-block">' +
           '<div class="store-header">' +

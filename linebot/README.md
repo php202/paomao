@@ -38,13 +38,20 @@ npm run ship-with-linebot
 
 ## 發布到 Chrome 線上應用程式商店（npm run deploy）
 
-上傳擴充需 Google OAuth 憑證，請改為用**環境變數**設定，勿寫入 `package.json` 再 push 到 GitHub：
+上傳擴充需 Google OAuth 憑證，請寫入 **`gas/.env`**（已加入 .gitignore，不會被 push）。從 `gas/` 載入 .env 再執行 linebot 的 deploy，子行程會繼承環境變數，linebot 拉得到。
 
-```bash
-export CHROME_WEB_STORE_CLIENT_ID="你的 Client ID"
-export CHROME_WEB_STORE_CLIENT_SECRET="你的 Client Secret"
-export CHROME_WEB_STORE_REFRESH_TOKEN="你的 Refresh Token"
-npm run deploy
-```
+1. 在 **gas/** 目錄複製範本並填入憑證：
+   ```bash
+   cd /path/to/gas
+   cp .env.example .env
+   # 用編輯器開啟 .env，填入 CHROME_WEB_STORE_CLIENT_ID、CLIENT_SECRET、REFRESH_TOKEN
+   ```
+
+2. 從 gas/ 載入 .env 後執行 linebot deploy：
+   ```bash
+   cd /path/to/gas
+   set -a && source .env && set +a && cd linebot && npm run deploy
+   ```
+   （Windows CMD 請改為先手動設定環境變數或使用 cross-env。）
 
 若曾把憑證 push 到 GitHub，請在 Google Cloud Console 撤銷並重新建立 OAuth 憑證，並用 `git rebase -i` 改寫歷史移除該 commit 中的憑證後再 push。

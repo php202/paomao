@@ -38,8 +38,7 @@ function runAccNeed() {
   }
 
   const today = new Date();
-  const endDate = new Date(today);
-  endDate.setDate(today.getDate() - 1); // 抓到昨天
+  const endDate = new Date(today); // 抓到今天（含今日業績）
 
   if (startDate > endDate) {
     console.log("資料已是最新，無需更新。");
@@ -63,6 +62,28 @@ function runAccNeed() {
     }
   }
   console.log(`取得店家數: ${stores.length}`);
+
+  /**
+   * 建立「日期|店家」-> 列號(1-based) 對照表，用於重複時更新
+   * B 欄：日期、C 欄：店家
+   */
+  function buildDateStoreRowMap(sheet) {
+    const map = {};
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return map;
+    const data = sheet.getRange(2, 2, lastRow, 3).getValues(); // B 欄=日期, C 欄=店家
+    for (let r = 0; r < data.length; r++) {
+      const dateVal = data[r][0];   // B 欄：日期
+      const storeVal = data[r][1];  // C 欄：店家
+      const dateStr = dateVal != null ? (typeof dateVal === 'object' && dateVal.getTime ? Utilities.formatDate(dateVal, timeZone, 'yyyy-MM-dd') : String(dateVal).trim()) : '';
+      const storeStr = storeVal != null ? String(storeVal).trim() : '';
+      if (dateStr && storeStr) map[dateStr + '|' + storeStr] = r + 2; // 列號 1-based，資料從第 2 列起
+    }
+    return map;
+  }
+
+  let rowMapAll = buildDateStoreRowMap(sheetAll);
+  let rowMapDirect = buildDateStoreRowMap(sheetDirect);
 
   // --- 3. 逐日執行並寫入 (關鍵修改區) ---
   
@@ -125,8 +146,8 @@ function runAccNeed() {
         const todayService = runData.businessIncome?.service ?? 0; // 今日業績 (L 欄)
 
         const rowData = [
-          dateStr,        
-          store.alias,    
+          dateStr,        // B 欄：日期
+          store.alias,    // C 欄：店家
           cashTotal,
           cashBusiness,
           cashUnearn,
@@ -145,22 +166,63 @@ function runAccNeed() {
       }
     }
 
-    // --- 4. 寫入當天資料 (一天寫一次) ---
+    // --- 4. 寫入當天資料：日期+店家重複則更新，否則新增 ---
     
-    // (A) 寫入全門市
+    const numCols = 11; // B~L：日期、店家、9 個數值欄
+
+    // (A) 全門市：拆成「要更新」與「要新增」
     if (dailyAllRows.length > 0) {
-      const currentLastRowAll = sheetAll.getLastRow(); // 每次都要重新抓最後一行
-      sheetAll.getRange(currentLastRowAll + 1, 2, dailyAllRows.length, dailyAllRows[0].length).setValues(dailyAllRows);
+      const toUpdateAll = [];
+      const toAppendAll = [];
+      for (const row of dailyAllRows) {
+        const key = row[0] + '|' + (row[1] != null ? String(row[1]).trim() : '');
+        const existingRow = rowMapAll[key];
+        if (existingRow) {
+          toUpdateAll.push({ rowIndex: existingRow, row: row });
+        } else {
+          toAppendAll.push(row);
+        }
+      }
+      for (const { rowIndex, row } of toUpdateAll) {
+        sheetAll.getRange(rowIndex, 2, 1, numCols).setValues([row]);
+      }
+      if (toAppendAll.length > 0) {
+        const lastRowAll = sheetAll.getLastRow();
+        const startRow = lastRowAll + 1;
+        sheetAll.getRange(startRow, 2, toAppendAll.length, numCols).setValues(toAppendAll);
+        for (let i = 0; i < toAppendAll.length; i++) {
+          rowMapAll[toAppendAll[i][0] + '|' + (toAppendAll[i][1] != null ? String(toAppendAll[i][1]).trim() : '')] = startRow + i;
+        }
+      }
     }
 
-    // (B) 寫入直營店
+    // (B) 直營店：同上
     if (dailyDirectRows.length > 0) {
-      const currentLastRowDirect = sheetDirect.getLastRow(); // 每次都要重新抓最後一行
-      sheetDirect.getRange(currentLastRowDirect + 1, 2, dailyDirectRows.length, dailyDirectRows[0].length).setValues(dailyDirectRows);
+      const toUpdateDirect = [];
+      const toAppendDirect = [];
+      for (const row of dailyDirectRows) {
+        const key = row[0] + '|' + (row[1] != null ? String(row[1]).trim() : '');
+        const existingRow = rowMapDirect[key];
+        if (existingRow) {
+          toUpdateDirect.push({ rowIndex: existingRow, row: row });
+        } else {
+          toAppendDirect.push(row);
+        }
+      }
+      for (const { rowIndex, row } of toUpdateDirect) {
+        sheetDirect.getRange(rowIndex, 2, 1, numCols).setValues([row]);
+      }
+      if (toAppendDirect.length > 0) {
+        const lastRowDirect = sheetDirect.getLastRow();
+        const startRow = lastRowDirect + 1;
+        sheetDirect.getRange(startRow, 2, toAppendDirect.length, numCols).setValues(toAppendDirect);
+        for (let i = 0; i < toAppendDirect.length; i++) {
+          rowMapDirect[toAppendDirect[i][0] + '|' + (toAppendDirect[i][1] != null ? String(toAppendDirect[i][1]).trim() : '')] = startRow + i;
+        }
+      }
     }
 
     // (C) 強制儲存 (關鍵！)
-    // 這行指令會強制 Google 立刻把資料寫進硬碟，而不是留在記憶體中
     SpreadsheetApp.flush(); 
     
     console.log(`✅ [${dateStr}] 寫入完成 (全門市:${dailyAllRows.length}筆 / 直營:${dailyDirectRows.length}筆)`);
