@@ -15,6 +15,9 @@ const LINEBOT_SOURCE = path.join(GAS_ROOT, 'linebot');
 /** 預設 Google Drive linebot 資料夾（泡泡貓共用，有連結即可取得最新版） */
 const DEFAULT_DRIVE_LINEBOT = '/Users/yutsunghan/Library/CloudStorage/GoogleDrive-paopaomao.of@gmail.com/我的雲端硬碟/linebot';
 
+/** 下載資料夾：執行時一併清理檔名以 94256530_P01_ 開頭且為 .txt 的暫存檔 */
+const DOWNLOADS_DIR = '/Users/yutsunghan/Downloads';
+
 function getDefaultDrivePath() {
   // 1. 專案預設路徑（此機 Google Drive 雲端硬碟/linebot）
   if (fs.existsSync(path.dirname(DEFAULT_DRIVE_LINEBOT))) return DEFAULT_DRIVE_LINEBOT;
@@ -70,10 +73,14 @@ function main() {
     copyRecursive(LINEBOT_SOURCE, dest);
     console.log('✅ linebot 已同步到 Google Drive');
 
-    // 順便清理「我的雲端硬碟」根目錄下檔名以 94256530_P01_ 開頭且為 .txt 的暫存檔
+    // 順便清理「我的雲端硬碟」根目錄與「Downloads」下檔名以 94256530_P01_ 開頭且為 .txt 的暫存檔
     const driveRoot = path.dirname(dest);
-    const removed = removeMatchingP01Txt(driveRoot);
-    if (removed > 0) console.log('🗑 已移除 ' + removed + ' 個符合 94256530_P01_*.txt 的檔案');
+    let removed = removeMatchingP01Txt(driveRoot);
+    if (removed > 0) console.log('🗑 已移除 ' + removed + ' 個符合 94256530_P01_*.txt 的檔案（雲端硬碟）');
+
+    // 清理「Downloads」下檔名以 94256530_P01_ 開頭且為 .txt 的暫存檔
+    removed = removeMatchingP01Txt(DOWNLOADS_DIR);
+    if (removed > 0) console.log('🗑 已移除 ' + removed + ' 個符合 94256530_P01_*.txt 的檔案（Downloads）');
   } catch (err) {
     console.error('同步失敗:', err.message);
     process.exit(1);
