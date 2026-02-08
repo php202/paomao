@@ -176,7 +176,7 @@ async function fetchMsgList(botId) {
         </div>
         <div class="msg-content">${item.msg}</div>
         <button class="btn-done" data-row="${item.row}">✔ 完成</button>
-        <button class="btn-waitlist" data-user-id="${item.userId || ''}">排候補</button>
+        <button class="btn-waitlist" data-user-id="${item.userId || ''}" data-name="${(item.name || '').replace(/"/g, '&quot;')}">排候補</button>
       `;
       listDiv.appendChild(div);
 
@@ -232,8 +232,9 @@ async function fetchMsgList(botId) {
       if (btnWaitlist) {
         btnWaitlist.addEventListener('click', () => {
           var userId = btnWaitlist.getAttribute('data-user-id') || '';
+          var name = (btnWaitlist.getAttribute('data-name') || '').replace(/&quot;/g, '"');
           if (!userId) { alert('此則訊息無 userId'); return; }
-          openWaitlistModal(userId);
+          openWaitlistModal(userId, name);
         });
       }
     });
@@ -262,14 +263,28 @@ async function fetchWaitlist(botId) {
     list.forEach(function (item) {
       var displayDate = item.displayDate || (item.date != null ? String(item.date) : '');
       var displayName = item.displayName || (item.userId ? String(item.userId).slice(0, 12) + '…' : '');
+      var handler = item.handler ? String(item.handler).trim() : '';
+      var nameEscaped = displayName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      var metaHtml = displayDate + ' · <span class="waitlist-name" title="點擊複製">' + nameEscaped + '</span>' + (handler ? ' · 處理人：' + handler.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '');
       var div = document.createElement('div');
       div.className = 'waitlist-item';
-      div.innerHTML = '<div class="row-meta">' + displayDate + ' · ' + displayName + '</div>' +
+      div.innerHTML = '<div class="row-meta waitlist-meta-copy">' + metaHtml + '</div>' +
         '<div class="row-btns">' +
         '<button type="button" class="btn-push" data-row-index="' + (item.rowIndex || '') + '">滿位，傳提醒</button>' +
         '<button type="button" class="btn-done-wl" data-row-index="' + (item.rowIndex || '') + '">已完成預約</button>' +
         '<button type="button" class="btn-handled" data-row-index="' + (item.rowIndex || '') + '">已處理</button>' +
         '</div>';
+      var nameSpan = div.querySelector('.waitlist-name');
+      if (nameSpan) {
+        nameSpan.addEventListener('click', function () {
+          navigator.clipboard.writeText(displayName).then(function () {
+            var orig = nameSpan.textContent;
+            nameSpan.textContent = '已複製';
+            nameSpan.style.color = '#00B900';
+            setTimeout(function () { nameSpan.textContent = orig; nameSpan.style.color = ''; }, 800);
+          });
+        });
+      }
       var btnPush = div.querySelector('.btn-push');
       var btnDoneWl = div.querySelector('.btn-done-wl');
       var btnHandled = div.querySelector('.btn-handled');
@@ -283,10 +298,18 @@ async function fetchWaitlist(botId) {
   }
 }
 
+function getOperatorName() {
+  var el = document.getElementById('operator_name');
+  return el ? String(el.value || '').trim() : '';
+}
+
 async function doMarkWaitlistPushed(botId, rowIndex) {
   if (!botId || !rowIndex) return;
+  var operatorName = getOperatorName();
   try {
-    var resp = await fetch(`${GAS_API_URL}?action=markWaitlistPushed&botId=${encodeURIComponent(botId)}&rowIndex=${encodeURIComponent(rowIndex)}`);
+    var url = `${GAS_API_URL}?action=markWaitlistPushed&botId=${encodeURIComponent(botId)}&rowIndex=${encodeURIComponent(rowIndex)}`;
+    if (operatorName) url += '&operator_name=' + encodeURIComponent(operatorName);
+    var resp = await fetch(url);
     var data = await resp.json();
     if (data.status === 'success') fetchWaitlist(botId);
     else alert(data.message || '傳送失敗');
@@ -295,8 +318,11 @@ async function doMarkWaitlistPushed(botId, rowIndex) {
 
 async function doMarkWaitlistDone(rowIndex) {
   if (!rowIndex) return;
+  var operatorName = getOperatorName();
   try {
-    var resp = await fetch(`${GAS_API_URL}?action=markWaitlistDone&rowIndex=${encodeURIComponent(rowIndex)}`);
+    var url = `${GAS_API_URL}?action=markWaitlistDone&rowIndex=${encodeURIComponent(rowIndex)}`;
+    if (operatorName) url += '&operator_name=' + encodeURIComponent(operatorName);
+    var resp = await fetch(url);
     var data = await resp.json();
     if (data.status === 'success' && currentBotId) fetchWaitlist(currentBotId);
     else if (data.message) alert(data.message);
@@ -305,8 +331,11 @@ async function doMarkWaitlistDone(rowIndex) {
 
 async function doMarkWaitlistHandled(rowIndex) {
   if (!rowIndex) return;
+  var operatorName = getOperatorName();
   try {
-    var resp = await fetch(`${GAS_API_URL}?action=markWaitlistHandled&rowIndex=${encodeURIComponent(rowIndex)}`);
+    var url = `${GAS_API_URL}?action=markWaitlistHandled&rowIndex=${encodeURIComponent(rowIndex)}`;
+    if (operatorName) url += '&operator_name=' + encodeURIComponent(operatorName);
+    var resp = await fetch(url);
     var data = await resp.json();
     if (data.status === 'success' && currentBotId) fetchWaitlist(currentBotId);
     else if (data.message) alert(data.message);
@@ -314,9 +343,11 @@ async function doMarkWaitlistHandled(rowIndex) {
 }
 
 var waitlistModalUserId = null;
+var waitlistModalUserName = '';
 
-function openWaitlistModal(userId) {
+function openWaitlistModal(userId, name) {
   waitlistModalUserId = userId;
+  waitlistModalUserName = (name != null && typeof name === 'string') ? name : '';
   var modal = document.getElementById('waitlist-modal');
   var dateInput = document.getElementById('waitlist-date');
   var timeInput = document.getElementById('waitlist-time');
@@ -332,6 +363,7 @@ function closeWaitlistModal() {
   var modal = document.getElementById('waitlist-modal');
   if (modal) modal.style.display = 'none';
   waitlistModalUserId = null;
+  waitlistModalUserName = '';
 }
 
 // 輔助：HH:MM轉分鐘
@@ -583,6 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         var url = `${GAS_API_URL}?action=addWaitlist&botId=${encodeURIComponent(currentBotId)}&date=${encodeURIComponent(dateVal)}&userId=${encodeURIComponent(waitlistModalUserId)}`;
         if (timeVal) url += '&time=' + encodeURIComponent(timeVal);
+        if (waitlistModalUserName) url += '&name=' + encodeURIComponent(waitlistModalUserName);
         var resp = await fetch(url);
         var data = await resp.json();
         if (data.status === 'success') {

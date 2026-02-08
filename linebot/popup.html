@@ -52,6 +52,9 @@
     .btn-waitlist { margin-left: 4px; padding: 2px 8px; font-size: 12px; background: #c4b5fd; color: #5b21b6; border: 1px solid #a78bfa; border-radius: 4px; cursor: pointer; }
     .waitlist-item { border: 1px solid #c4b5fd; padding: 8px; margin-bottom: 6px; border-radius: 5px; background: #fff; font-size: 13px; }
     .waitlist-item .row-meta { color: #666; margin-bottom: 6px; }
+    .waitlist-meta-copy { user-select: text; cursor: text; }
+    .waitlist-name { color: #0066cc; font-weight: bold; cursor: pointer; border-bottom: 1px dashed #0066cc; }
+    .waitlist-name:hover { color: #004499; border-bottom-color: #004499; background-color: #e6f7ff; }
     .waitlist-item .row-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .waitlist-item .row-btns button { padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid #ccc; background: #fff; }
     .waitlist-item .row-btns .btn-push { background: #00B900; color: #fff; border-color: #00B900; }
@@ -197,8 +200,13 @@
   </div>
 
   <div class="box-container waitlist-section" id="waitlist-section" style="display: none; background: #f5f0ff; border-color: #c4b5fd;">
-    <div class="section-title" style="color: #5b21b6;">候補清單</div>
+    <div class="collapsible-header" data-toggle="waitlist-body" aria-expanded="false">
+      <span class="section-title" style="color: #5b21b6;">候補清單</span>
+      <span class="collapsible-chevron">▶</span>
+    </div>
+    <div id="waitlist-body" class="collapsible-body collapsed">
     <div id="waitlist-list"></div>
+    </div>
   </div>
 
   <div class="search-box">
