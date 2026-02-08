@@ -36,11 +36,11 @@ function hideMsgStatus() {
   if (el) el.style.display = 'none';
 }
 
-/** 是否為需優先處理的訊息：含時間格式（6:00、1930、0800、8.00、8點）或關鍵字（預約、有嗎、呼叫、位） */
+/** 是否為需優先處理的訊息：含時間格式（6:00、1930、0800、8.00、8點）或關鍵字（預約、有嗎、呼叫、位、候補） */
 function isPriorityMsg(msg) {
   const s = String(msg || '').trim();
   if (!s) return false;
-  if (/預約|有嗎|呼叫|位/.test(s)) return true;
+  if (/預約|有嗎|呼叫|位|候補/.test(s)) return true;
   if (/\d{1,2}:\d{2}/.test(s)) return true;   // 6:00, 12:30
   if (/\b(0?[0-9]|1[0-9]|2[0-3])[0-5][0-9]\b/.test(s)) return true; // 0800, 1930
   if (/\d{1,2}\.\d{2}/.test(s)) return true; // 8.00
@@ -82,6 +82,8 @@ async function refreshData() {
     document.querySelector('.booking-section').style.display = 'none';
     document.querySelector('.quick-reply-section').style.display = 'none';
     document.querySelector('.search-box').style.display = 'none';
+    var wlSection = document.getElementById('waitlist-section');
+    if (wlSection) wlSection.style.display = 'none';
     hideMsgStatus();
     return;
   }
@@ -130,6 +132,10 @@ async function fetchMsgList(botId) {
     storeNameDiv.style.color = "#00B900";
     storeNameDiv.style.fontWeight = "bold";
 
+    var wlSection = document.getElementById('waitlist-section');
+    if (wlSection) wlSection.style.display = 'block';
+    fetchWaitlist(botId);
+
     const list = (data && Array.isArray(data.data)) ? data.data : [];
     if (list.length === 0) {
       listDiv.innerHTML = '<div style="text-align:center;color:#999;margin-top:20px;">🎉 目前沒有未處理訊息</div>';
@@ -170,6 +176,7 @@ async function fetchMsgList(botId) {
         </div>
         <div class="msg-content">${item.msg}</div>
         <button class="btn-done" data-row="${item.row}">✔ 完成</button>
+        <button class="btn-waitlist" data-user-id="${item.userId || ''}">排候補</button>
       `;
       listDiv.appendChild(div);
 
@@ -220,9 +227,111 @@ async function fetchMsgList(botId) {
           e.target.textContent = '✔ 完成';
         }
       });
+
+      var btnWaitlist = div.querySelector('.btn-waitlist');
+      if (btnWaitlist) {
+        btnWaitlist.addEventListener('click', () => {
+          var userId = btnWaitlist.getAttribute('data-user-id') || '';
+          if (!userId) { alert('此則訊息無 userId'); return; }
+          openWaitlistModal(userId);
+        });
+      }
     });
 
   } catch (err) { loadingDiv.style.display = 'none'; }
+}
+
+/** 候補清單：取得並渲染 */
+async function fetchWaitlist(botId) {
+  var listEl = document.getElementById('waitlist-list');
+  if (!listEl) return;
+  if (!botId) { listEl.innerHTML = ''; return; }
+  try {
+    var resp = await fetch(`${GAS_API_URL}?action=getWaitlist&botId=${encodeURIComponent(botId)}&_t=${Date.now()}`);
+    var data = await resp.json();
+    if (data.status !== 'success' || !Array.isArray(data.data)) {
+      listEl.innerHTML = '<div style="color:#999; font-size:12px;">尚無候補或載入失敗</div>';
+      return;
+    }
+    var list = data.data;
+    if (list.length === 0) {
+      listEl.innerHTML = '<div style="color:#999; font-size:12px;">目前沒有待追蹤的候補</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    list.forEach(function (item) {
+      var displayDate = item.displayDate || (item.date != null ? String(item.date) : '');
+      var displayName = item.displayName || (item.userId ? String(item.userId).slice(0, 12) + '…' : '');
+      var div = document.createElement('div');
+      div.className = 'waitlist-item';
+      div.innerHTML = '<div class="row-meta">' + displayDate + ' · ' + displayName + '</div>' +
+        '<div class="row-btns">' +
+        '<button type="button" class="btn-push" data-row-index="' + (item.rowIndex || '') + '">滿位，傳提醒</button>' +
+        '<button type="button" class="btn-done-wl" data-row-index="' + (item.rowIndex || '') + '">已完成預約</button>' +
+        '<button type="button" class="btn-handled" data-row-index="' + (item.rowIndex || '') + '">已處理</button>' +
+        '</div>';
+      var btnPush = div.querySelector('.btn-push');
+      var btnDoneWl = div.querySelector('.btn-done-wl');
+      var btnHandled = div.querySelector('.btn-handled');
+      if (btnPush) btnPush.addEventListener('click', function () { doMarkWaitlistPushed(botId, this.getAttribute('data-row-index')); });
+      if (btnDoneWl) btnDoneWl.addEventListener('click', function () { doMarkWaitlistDone(this.getAttribute('data-row-index')); });
+      if (btnHandled) btnHandled.addEventListener('click', function () { doMarkWaitlistHandled(this.getAttribute('data-row-index')); });
+      listEl.appendChild(div);
+    });
+  } catch (err) {
+    listEl.innerHTML = '<div style="color:#999; font-size:12px;">載入候補清單失敗</div>';
+  }
+}
+
+async function doMarkWaitlistPushed(botId, rowIndex) {
+  if (!botId || !rowIndex) return;
+  try {
+    var resp = await fetch(`${GAS_API_URL}?action=markWaitlistPushed&botId=${encodeURIComponent(botId)}&rowIndex=${encodeURIComponent(rowIndex)}`);
+    var data = await resp.json();
+    if (data.status === 'success') fetchWaitlist(botId);
+    else alert(data.message || '傳送失敗');
+  } catch (err) { alert('連線失敗'); }
+}
+
+async function doMarkWaitlistDone(rowIndex) {
+  if (!rowIndex) return;
+  try {
+    var resp = await fetch(`${GAS_API_URL}?action=markWaitlistDone&rowIndex=${encodeURIComponent(rowIndex)}`);
+    var data = await resp.json();
+    if (data.status === 'success' && currentBotId) fetchWaitlist(currentBotId);
+    else if (data.message) alert(data.message);
+  } catch (err) { alert('連線失敗'); }
+}
+
+async function doMarkWaitlistHandled(rowIndex) {
+  if (!rowIndex) return;
+  try {
+    var resp = await fetch(`${GAS_API_URL}?action=markWaitlistHandled&rowIndex=${encodeURIComponent(rowIndex)}`);
+    var data = await resp.json();
+    if (data.status === 'success' && currentBotId) fetchWaitlist(currentBotId);
+    else if (data.message) alert(data.message);
+  } catch (err) { alert('連線失敗'); }
+}
+
+var waitlistModalUserId = null;
+
+function openWaitlistModal(userId) {
+  waitlistModalUserId = userId;
+  var modal = document.getElementById('waitlist-modal');
+  var dateInput = document.getElementById('waitlist-date');
+  var timeInput = document.getElementById('waitlist-time');
+  if (modal) modal.style.display = 'flex';
+  if (dateInput) {
+    var today = new Date();
+    dateInput.value = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  }
+  if (timeInput) timeInput.value = '';
+}
+
+function closeWaitlistModal() {
+  var modal = document.getElementById('waitlist-modal');
+  if (modal) modal.style.display = 'none';
+  waitlistModalUserId = null;
 }
 
 // 輔助：HH:MM轉分鐘
@@ -264,27 +373,39 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ----------------------------------------------------
+  // 可收合區塊：點標題展開／收合
+  // ----------------------------------------------------
+  document.querySelectorAll('.collapsible-header').forEach(function (header) {
+    var targetId = header.getAttribute('data-toggle');
+    if (!targetId) return;
+    var body = document.getElementById(targetId);
+    var chevron = header.querySelector('.collapsible-chevron');
+    if (!body) return;
+    header.addEventListener('click', function () {
+      var isCollapsed = body.classList.toggle('collapsed');
+      if (chevron) chevron.textContent = isCollapsed ? '▶' : '▼';
+      header.setAttribute('aria-expanded', !isCollapsed);
+      if (!isCollapsed && targetId === 'availability-body') {
+        var advStart = document.getElementById('adv-start');
+        var advEnd = document.getElementById('adv-end');
+        if (advStart && advEnd && !advStart.value) {
+          var today = new Date();
+          var nextWeek = new Date();
+          nextWeek.setDate(today.getDate() + 7);
+          advStart.value = today.toISOString().split('T')[0];
+          advEnd.value = nextWeek.toISOString().split('T')[0];
+        }
+      }
+    });
+  });
+
+  // ----------------------------------------------------
   // [功能] 進階搜尋 (智慧過濾 + 純文字)
   // ----------------------------------------------------
-  const btnToggleAdv = document.getElementById('btn-toggle-advanced');
-  const panelAdv = document.getElementById('advanced-search-panel');
   const btnRunSearch = document.getElementById('btn-run-search');
   const boxResultContainer = document.getElementById('adv-result-container');
   const txtResult = document.getElementById('adv-result-text');
   const btnCopyTxt = document.getElementById('btn-copy-txt');
-
-  if (btnToggleAdv) {
-    btnToggleAdv.addEventListener('click', () => {
-      panelAdv.style.display = (panelAdv.style.display === 'none') ? 'block' : 'none';
-      if (panelAdv.style.display === 'block') {
-        const today = new Date();
-        const nextWeek = new Date();
-        nextWeek.setDate(today.getDate() + 7);
-        document.getElementById('adv-start').value = today.toISOString().split('T')[0];
-        document.getElementById('adv-end').value = nextWeek.toISOString().split('T')[0];
-      }
-    });
-  }
 
   if (btnRunSearch) {
     btnRunSearch.addEventListener('click', async () => {
@@ -444,6 +565,43 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) { alert("連線失敗"); } 
     finally { btn.disabled = false; btn.textContent = "🚀 確認預約"; }
   });
+
+  // 候補清單：排候補彈窗送出／取消
+  const waitlistModal = document.getElementById('waitlist-modal');
+  const waitlistDate = document.getElementById('waitlist-date');
+  const waitlistTime = document.getElementById('waitlist-time');
+  const waitlistModalSubmit = document.getElementById('waitlist-modal-submit');
+  const waitlistModalCancel = document.getElementById('waitlist-modal-cancel');
+  if (waitlistModalSubmit && waitlistDate) {
+    waitlistModalSubmit.addEventListener('click', async () => {
+      var dateVal = waitlistDate.value.trim();
+      if (!dateVal) { alert('請選擇候補日期'); return; }
+      var timeVal = (waitlistTime && waitlistTime.value) ? waitlistTime.value.trim() : '';
+      if (!currentBotId || !waitlistModalUserId) { alert('請重新開啟此視窗'); closeWaitlistModal(); return; }
+      waitlistModalSubmit.disabled = true;
+      waitlistModalSubmit.textContent = '送出中...';
+      try {
+        var url = `${GAS_API_URL}?action=addWaitlist&botId=${encodeURIComponent(currentBotId)}&date=${encodeURIComponent(dateVal)}&userId=${encodeURIComponent(waitlistModalUserId)}`;
+        if (timeVal) url += '&time=' + encodeURIComponent(timeVal);
+        var resp = await fetch(url);
+        var data = await resp.json();
+        if (data.status === 'success') {
+          closeWaitlistModal();
+          fetchWaitlist(currentBotId);
+          alert('已加入候補清單');
+        } else {
+          alert(data.message || '加入失敗');
+        }
+      } catch (err) { alert('連線失敗'); }
+      finally { waitlistModalSubmit.disabled = false; waitlistModalSubmit.textContent = '送出'; }
+    });
+  }
+  if (waitlistModalCancel) waitlistModalCancel.addEventListener('click', closeWaitlistModal);
+  if (waitlistModal) {
+    waitlistModal.addEventListener('click', function (e) {
+      if (e.target === waitlistModal) closeWaitlistModal();
+    });
+  }
 
   // 搜尋過濾
   const searchInputEl = document.getElementById('input-search');

@@ -81,6 +81,16 @@ function doGet(e) {
         return getCustomerCardAction(e);
       case 'getCustomerInfo':
         return getCustomerInfoAction(e);
+      case 'getWaitlist':
+        return getWaitlist(e);
+      case 'addWaitlist':
+        return addWaitlist(e);
+      case 'markWaitlistPushed':
+        return markWaitlistPushed(e);
+      case 'markWaitlistDone':
+        return markWaitlistDone(e);
+      case 'markWaitlistHandled':
+        return markWaitlistHandled(e);
       case 'updateAiAdjustmentSuggestion':
         return updateAiAdjustmentSuggestionAction({
           token: (e.parameter && e.parameter.token) ? e.parameter.token : "",

@@ -26,7 +26,10 @@ var TRIGGERS_CONFIG = {
   PENDING_CRUISE_MINUTES: 1,
   /** 準客挽留清單清理：每日此時檢查，若距上次清理已滿 10 天則執行（刪除已結案與過期 Pending） */
   CLEANUP_HOUR: 3,
-  CLEANUP_MINUTE: 0
+  CLEANUP_MINUTE: 0,
+  /** 候補清單今日自動 Push：22:00（預約日=今天且仍 pending 則自動傳提醒，狀態改為 auto_pushed） */
+  WAITLIST_AUTO_PUSH_HOUR: 22,
+  WAITLIST_AUTO_PUSH_MINUTE: 0
 };
 
 /** 要由本腳本建立／管理的觸發對應函式（用於刪除重複） */
@@ -37,7 +40,8 @@ var MANAGED_TRIGGER_HANDLERS = [
   "runYesterdaySalesReportAndPush",
   "runMonthlySalesReportAndPush",
   "checkTimeoutPending",
-  "cleanupRetentionList"
+  "cleanupRetentionList",
+  "runWaitlistAutoPush"
 ];
 
 /**
@@ -148,7 +152,16 @@ function setupAllTriggers() {
     .inTimezone(c.TZ)
     .create();
 
-  Logger.log("已建立 2 個排程觸發（每 " + pendingMins + " 分鐘 Pending 巡航、每日 " + c.CLEANUP_HOUR + ":00 準客挽留清理檢查每 10 天）。每日 21:00/22:00/8:00/8:30 與每月 1 號 8:00 已暫時註解，驗證後取消註解並重新執行 setupAllTriggers 即可恢復。");
+  // 每日 22:00：候補清單今日自動 Push（日期=今天且狀態=pending → 發 Push → 狀態改為 auto_pushed），結算候補追蹤率寫入 M 欄
+  ScriptApp.newTrigger("runWaitlistAutoPush")
+    .timeBased()
+    .everyDays(1)
+    .atHour(c.WAITLIST_AUTO_PUSH_HOUR)
+    .nearMinute(c.WAITLIST_AUTO_PUSH_MINUTE)
+    .inTimezone(c.TZ)
+    .create();
+
+  Logger.log("已建立 3 個排程觸發（每 " + pendingMins + " 分鐘 Pending 巡航、每日 " + c.CLEANUP_HOUR + ":00 準客挽留清理、每日 " + c.WAITLIST_AUTO_PUSH_HOUR + ":00 候補自動 Push）。每日 21:00/22:00/8:00/8:30 與每月 1 號 8:00 已暫時註解，驗證後取消註解並重新執行 setupAllTriggers 即可恢復。");
   Logger.log("請到 編輯 → 目前專案的觸發條件 確認。表單送出觸發（onFormSubmit_Survey）需在「表單回應的試算表」專案內手動加一次。");
   return listMyTriggers();
 }
