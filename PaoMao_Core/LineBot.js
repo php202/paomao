@@ -68,7 +68,7 @@ function sendLineReply(replyToken, text, token) {
 function sendLineReplyObj(replyToken, messages, token) {
   const url = "https://api.line.me/v2/bot/message/reply";
   try {
-    UrlFetchApp.fetch(url, {
+    var res = UrlFetchApp.fetch(url, {
       "method": "post",
       "headers": {
         "Content-Type": "application/json",
@@ -80,8 +80,15 @@ function sendLineReplyObj(replyToken, messages, token) {
       }),
       "muteHttpExceptions": true
     });
+    var code = res.getResponseCode();
+    if (code !== 200) {
+      var body = res.getContentText();
+      console.error("[Core] sendLineReplyObj LINE API 非 200: " + code + " " + (body ? body.slice(0, 300) : ""));
+      throw new Error("LINE reply API " + code + (body ? ": " + body.slice(0, 200) : ""));
+    }
   } catch (e) {
     console.error("[Core] sendLineReplyObj Error:", e);
+    throw e;
   }
 }
 
