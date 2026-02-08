@@ -30,6 +30,10 @@ function doPost(e) {
           handleConfirmPostback(event);
         } else if (event.type === 'message' && event.message && event.message.type === 'text') {
           const text = (event.message.text || '').trim();
+          if (text.includes("店家回覆狀態")) {
+            handleDirectStoreReplyStatus(event, paopaoToken);
+            continue;
+          }
           const reportHandler = typeof Core.getReportHandlerFromKeyword === 'function' ? Core.getReportHandlerFromKeyword(text) : null;
           if (reportHandler && paopaoToken) {
             const userId = (event.source && event.source.userId) || '';
@@ -78,6 +82,79 @@ function doPost(e) {
     // 發生錯誤仍回傳 OK 給 LINE，避免無限重試
     return Core.jsonResponse({ status: "error", message: "System Error" });
   }
+}
+
+// ==========================================
+// 店家回覆狀態（僅直營店 / pao 官方 Line@ 接收與回覆）
+// ==========================================
+function formatCompletionRate(val) {
+  var n = parseFloat(val);
+  if (isNaN(n)) return "—";
+  if (n > 1) return n.toFixed(1) + "%";
+  return (n * 100).toFixed(1) + "%";
+}
+
+function getDirectStoreReplyStatusText() {
+  var config = Core.getCoreConfig();
+  var ssId = config && config.LINE_STORE_SS_ID ? config.LINE_STORE_SS_ID : "";
+  if (!ssId) return { ok: false, message: "無法取得店家回覆狀態，請稍後再試。" };
+  try {
+    var ss = SpreadsheetApp.openById(ssId);
+    var sheet = ss.getSheetById(72760104) || ss.getSheetByName("店家基本資料");
+    if (!sheet) return { ok: false, message: "無法取得店家回覆狀態，請稍後再試。" };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: false, message: "目前無直營店資料或 H 欄皆為 false" };
+    var data = sheet.getRange(2, 1, lastRow, 12).getValues();
+    var directStores = [];
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i];
+      if (row[7] === true) {
+        directStores.push({
+          name: row[1] != null ? String(row[1]).trim() : "",
+          unreplied: typeof row[11] === "number" ? row[11] : (parseInt(row[11], 10) || 0),
+          rateVal: row[10]
+        });
+      }
+    }
+    if (directStores.length === 0) return { ok: false, message: "目前無直營店資料或 H 欄皆為 false" };
+    directStores.sort(function (a, b) { return b.unreplied - a.unreplied; });
+    var totalUnreplied = 0;
+    var rateSum = 0;
+    var rateCount = 0;
+    var lines = ["【店家回覆狀態】"];
+    for (var j = 0; j < directStores.length; j++) {
+      var s = directStores[j];
+      totalUnreplied += s.unreplied;
+      var n = parseFloat(s.rateVal);
+      if (!isNaN(n)) {
+        rateSum += n > 1 ? n : n * 100;
+        rateCount++;
+      }
+      lines.push(s.name + "：未回覆 " + s.unreplied + " 則 | 完成率 " + formatCompletionRate(s.rateVal));
+    }
+    if (rateCount > 0) {
+      lines.push("直營店總未回覆：" + totalUnreplied + " 則 | 平均完成率：" + (rateSum / rateCount).toFixed(1) + "%");
+    } else {
+      lines.push("直營店總未回覆：" + totalUnreplied + " 則");
+    }
+    lines.push("https://drive.google.com/drive/folders/14j3NL2pt9ISy66jN6TX2BxnaAquQZTKh?usp=drive_link");
+    return { ok: true, text: lines.join("\n") };
+  } catch (e) {
+    console.warn("[店家回覆狀態] 讀表失敗:", e);
+    return { ok: false, message: "無法取得店家回覆狀態，請稍後再試。" };
+  }
+}
+
+function handleDirectStoreReplyStatus(event, paopaoToken) {
+  if (!paopaoToken) return;
+  var userId = (event.source && event.source.userId) || "";
+  var auth = typeof Core.getManagerManagedStores === "function" ? Core.getManagerManagedStores(userId) : { isManager: false };
+  if (!auth.isManager) {
+    Core.sendLineReply(event.replyToken, "此功能僅限管理者使用。", paopaoToken);
+    return;
+  }
+  var result = getDirectStoreReplyStatusText();
+  Core.sendLineReply(event.replyToken, result.ok ? result.text : result.message, paopaoToken);
 }
 
 // ==========================================

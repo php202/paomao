@@ -441,6 +441,7 @@ function doPost(e) {
     return LINE_OK_OUTPUT; 
   }
 }
+
 function routeMessageEvent(event) {
   // 定義變數在 try 外面，確保 catch 區塊也能讀取到 (用於記錄是誰出錯)
   let userId = "Unknown"; 
