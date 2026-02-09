@@ -4,14 +4,14 @@
  * 排程: runWaitlistAutoPush（每日 22:00）、結算寫入店家基本資料 M 欄（候補追蹤率）。
  */
 
-var WAITLIST_HEADERS = ["店家ID", "日期", "userId", "狀態", "建立時間", "時段", "處理人", "姓名", "處理時間"];
+var WAITLIST_HEADERS = ["店家ID", "日期", "userId", "狀態", "建立時間", "時段", "人數", "處理人", "姓名", "處理時間", "備註"];
 var WAITLIST_STATUS_PENDING = "pending";
 var WAITLIST_STATUS_PUSHED = "pushed";
 var WAITLIST_STATUS_AUTO_PUSHED = "auto_pushed";
 var WAITLIST_STATUS_DONE = "done";
 var WAITLIST_STATUS_HANDLED = "handled";
 
-/** 依候補日期與時段產出 Push 開頭文案（MM/DD HH:mm） */
+/** 依候補日期與時段產出 Push 開頭文案（MM/DD HH:mm）；時段僅在為 HH:mm 格式時顯示 */
 function getWaitlistPushPrefix(waitlistDateStr, timeStr) {
   var tz = "Asia/Taipei";
   var mmdd = "";
@@ -20,7 +20,7 @@ function getWaitlistPushPrefix(waitlistDateStr, timeStr) {
     if (s.length >= 10) mmdd = s.substring(5, 7) + "/" + s.substring(8, 10);
     else mmdd = s;
   }
-  var hhmm = (timeStr && String(timeStr).trim() !== "") ? String(timeStr).trim().substring(0, 5) : "";
+  var hhmm = (timeStr && isTimeLike(timeStr)) ? String(timeStr).trim().substring(0, 5) : "";
   var part = hhmm ? mmdd + " " + hhmm : mmdd;
   return "真是抱歉今天的候補（" + part + "）沒有補位上，提供近三天，還有下 1–2 週同一時間的可預約時段：\n\n";
 }
@@ -159,7 +159,7 @@ function getWaitlist(e) {
   var data = sheet.getDataRange().getValues();
   if (data.length < 2) return Core.jsonResponse({ status: "success", data: [] });
 
-  var storeIdCol = 0, dateCol = 1, userIdCol = 2, statusCol = 3, createdAtCol = 4, timeCol = 5, handlerCol = 6, nameCol = 7;
+  var storeIdCol = 0, dateCol = 1, userIdCol = 2, statusCol = 3, createdAtCol = 4, timeCol = 5, peopleCol = 6, handlerCol = 7, nameCol = 8, remarkCol = 10;
   var list = [];
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
@@ -172,6 +172,7 @@ function getWaitlist(e) {
     var displayName = (row.length > nameCol && row[nameCol] != null && String(row[nameCol]).trim() !== "") ? String(row[nameCol]).trim() : userId;
     var dateVal = row[dateCol];
     var timeVal = row[timeCol];
+    var peopleVal = (row.length > peopleCol && row[peopleCol] != null && !isNaN(Number(row[peopleCol]))) ? Math.max(1, parseInt(Number(row[peopleCol]), 10)) : 1;
     var displayDate = "";
     var sortKey = "";
     try {
@@ -181,6 +182,12 @@ function getWaitlist(e) {
       sortKey = String(dateVal || "") + " " + String(timeVal || "");
     }
     var handler = (row.length > handlerCol && row[handlerCol] != null) ? String(row[handlerCol]).trim() : "";
+    var remark = (row.length > remarkCol && row[remarkCol] != null && String(row[remarkCol]).trim() !== "") ? String(row[remarkCol]).trim() : "";
+    var dateStr = normalizeWaitlistDateStr(dateVal);
+    var timeStr = (timeVal != null && isTimeLike(timeVal)) ? String(timeVal).trim().substring(0, 5) : "";
+    var todayStr = getTodayStr();
+    var slotCheck = (dateStr && dateStr >= todayStr) ? checkSlotAvailableForWaitlist(botId, dateStr, timeStr, peopleVal) : null;
+    var slotAvailable = slotCheck != null ? slotCheck.available : null;
 
     list.push({
       rowIndex: i + 1,
@@ -190,6 +197,9 @@ function getWaitlist(e) {
       sortKey: sortKey,
       status: status,
       handler: handler,
+      remark: remark,
+      people: peopleVal,
+      slotAvailable: slotAvailable,
       createdAt: row[createdAtCol],
       time: row[timeCol]
     });
@@ -204,13 +214,15 @@ function getWaitlist(e) {
   return Core.jsonResponse({ status: "success", data: list });
 }
 
-/** addWaitlist：新增一筆候補（店家ID, 日期, userId, pending, 建立時間, 時段） */
+/** addWaitlist：新增一筆候補（店家ID, 日期, userId, pending, 建立時間, 時段, 人數, 處理人, 姓名, 處理時間, 備註） */
 function addWaitlist(e) {
   var botId = (e && e.parameter && e.parameter.botId) ? String(e.parameter.botId).trim() : "";
   var dateStr = (e && e.parameter && e.parameter.date) ? String(e.parameter.date).trim().replace(/\//g, "-") : "";
   var userId = (e && e.parameter && e.parameter.userId) ? String(e.parameter.userId).trim() : "";
   var timeStr = (e && e.parameter && e.parameter.time) ? String(e.parameter.time).trim() : "";
+  var peopleNum = (e && e.parameter && e.parameter.people != null && !isNaN(Number(e.parameter.people))) ? Math.max(1, parseInt(Number(e.parameter.people), 10)) : 1;
   var nameStr = (e && e.parameter && e.parameter.name != null) ? String(e.parameter.name).trim() : "";
+  var remarkStr = (e && e.parameter && e.parameter.remark != null) ? String(e.parameter.remark).trim() : "";
 
   if (!botId) return Core.jsonResponse({ status: "error", message: "請提供 botId" });
   if (!dateStr || !isValidDateStr(dateStr)) return Core.jsonResponse({ status: "error", message: "請提供有效日期（yyyy-MM-dd）" });
@@ -224,7 +236,7 @@ function addWaitlist(e) {
 
   var tz = Session.getScriptTimeZone() || "Asia/Taipei";
   var createdAt = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
-  sheet.appendRow([storeId, dateStr, userId, WAITLIST_STATUS_PENDING, createdAt, timeStr, "", nameStr, ""]);
+  sheet.appendRow([storeId, dateStr, userId, WAITLIST_STATUS_PENDING, createdAt, timeStr, peopleNum, "", nameStr, "", remarkStr]);
 
   return Core.jsonResponse({ status: "success", message: "已加入候補清單" });
 }
@@ -242,8 +254,8 @@ function markWaitlistDone(e) {
   var tz = Session.getScriptTimeZone() || "Asia/Taipei";
   var handledAt = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
   sheet.getRange(rowIndex, 4).setValue(WAITLIST_STATUS_DONE);
-  if (operatorName) sheet.getRange(rowIndex, 7).setValue(operatorName);
-  sheet.getRange(rowIndex, 9).setValue(handledAt);
+  if (operatorName) sheet.getRange(rowIndex, 8).setValue(operatorName);
+  sheet.getRange(rowIndex, 10).setValue(handledAt);
   return Core.jsonResponse({ status: "success", message: "已標記為已完成預約" });
 }
 
@@ -260,8 +272,8 @@ function markWaitlistHandled(e) {
   var tz = Session.getScriptTimeZone() || "Asia/Taipei";
   var handledAt = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
   sheet.getRange(rowIndex, 4).setValue(WAITLIST_STATUS_HANDLED);
-  if (operatorName) sheet.getRange(rowIndex, 7).setValue(operatorName);
-  sheet.getRange(rowIndex, 9).setValue(handledAt);
+  if (operatorName) sheet.getRange(rowIndex, 8).setValue(operatorName);
+  sheet.getRange(rowIndex, 10).setValue(handledAt);
   return Core.jsonResponse({ status: "success", message: "已標記為已處理" });
 }
 
@@ -275,31 +287,55 @@ function normalizeWaitlistDateStr(dateVal) {
   return s;
 }
 
-/** 產出候補 Push 用的空位文字：近三天 + 下 1–2 週同一時段（MM/DD +7天、+14天 的 HH:mm） */
-function getSlotsTextForWaitlist(botId, waitlistDateStr, timeStr) {
+/** 偵測該候補日期＋時段＋人數目前是否有空位（隔天課表可能變動）。回傳 { available: true/false }，失敗則 null。 */
+function checkSlotAvailableForWaitlist(botId, dateStr, timeStr, people) {
+  try {
+    var config = getStoreConfig(botId);
+    if (!config || !config.sayId) return null;
+    var sayId = String(config.sayId);
+    var peopleVal = (people != null && !isNaN(Number(people))) ? Math.max(1, parseInt(Number(people), 10)) : 1;
+    var opts = { startDate: dateStr, endDate: dateStr, people: peopleVal, duration: 1.5, weekDays: "" };
+    if (timeStr && isTimeLike(timeStr)) {
+      var t = String(timeStr).trim().substring(0, 5);
+      opts.timeStart = t;
+      opts.timeEnd = t;
+    }
+    var text = cleanData(sayId, opts);
+    if (!text || typeof text !== "string") return null;
+    var hasSlots = text.indexOf("（無）") < 0;
+    return { available: hasSlots };
+  } catch (err) {
+    Logger.log("checkSlotAvailableForWaitlist error: " + (err && err.message ? err.message : err));
+    return null;
+  }
+}
+
+/** 產出候補 Push 用的空位文字：近三天 + 下 1–2 週同一時段（依候補人數查可預約空位）。people 預設 1。 */
+function getSlotsTextForWaitlist(botId, waitlistDateStr, timeStr, people) {
   var tz = Session.getScriptTimeZone() || "Asia/Taipei";
   var config = getStoreConfig(botId);
   if (!config || !config.sayId) return "（無法取得空位，請直接聯繫店家）";
 
   var sayId = String(config.sayId);
   var todayStr = getTodayStr();
-  var timeOpt = (timeStr && String(timeStr).trim() !== "") ? String(timeStr).trim().substring(0, 5) : "";
+  var timeOpt = (timeStr && isTimeLike(timeStr)) ? String(timeStr).trim().substring(0, 5) : "";
+  var peopleVal = (people != null && !isNaN(Number(people))) ? Math.max(1, parseInt(Number(people), 10)) : 1;
 
   var lines = [];
 
   try {
-    // 近三天：今天起連續 3 天
+    // 近三天：今天起連續 3 天（日期 B 欄、時段 F 欄、人數 G 欄）
     var startD = parseDateOnly_(todayStr);
     if (!startD) startD = new Date();
     var endD3 = addDays_(startD, 2);
     var endStr3 = Utilities.formatDate(endD3, tz, "yyyy-MM-dd");
-    var options3 = { startDate: todayStr, endDate: endStr3, people: 1, duration: 1.5, weekDays: "" };
+    var options3 = { startDate: todayStr, endDate: endStr3, people: peopleVal, duration: 1.5, weekDays: "" };
     if (timeOpt) options3.timeStart = timeOpt;
     if (timeOpt) options3.timeEnd = timeOpt;
     var text3 = cleanData(sayId, options3);
     lines.push(text3);
 
-    // 下 1–2 週同一時段：候補日期 +7 天、+14 天的同一 HH:mm
+    // 下 1–2 週同一時段：候補日期 +7 天、+14 天的同一 HH:mm（依人數查）
     var baseDateStr = normalizeWaitlistDateStr(waitlistDateStr);
     if (baseDateStr) {
       var baseD = parseDateOnly_(baseDateStr);
@@ -308,8 +344,8 @@ function getSlotsTextForWaitlist(botId, waitlistDateStr, timeStr) {
         var d14 = addDays_(baseD, 14);
         var str7 = Utilities.formatDate(d7, tz, "yyyy-MM-dd");
         var str14 = Utilities.formatDate(d14, tz, "yyyy-MM-dd");
-        var opts7 = { startDate: str7, endDate: str7, people: 1, duration: 1.5, weekDays: "" };
-        var opts14 = { startDate: str14, endDate: str14, people: 1, duration: 1.5, weekDays: "" };
+        var opts7 = { startDate: str7, endDate: str7, people: peopleVal, duration: 1.5, weekDays: "" };
+        var opts14 = { startDate: str14, endDate: str14, people: peopleVal, duration: 1.5, weekDays: "" };
         if (timeOpt) { opts7.timeStart = timeOpt; opts7.timeEnd = timeOpt; opts14.timeStart = timeOpt; opts14.timeEnd = timeOpt; }
         var line7 = cleanData(sayId, opts7);
         var line14 = cleanData(sayId, opts14);
@@ -339,10 +375,13 @@ function markWaitlistPushed(e) {
   if (!sheet) return Core.jsonResponse({ status: "error", message: "無法取得候補清單工作表" });
   if (sheet.getLastRow() < rowIndex) return Core.jsonResponse({ status: "error", message: "找不到該筆資料" });
 
-  var row = sheet.getRange(rowIndex, 1, rowIndex, 6).getValues()[0];
+  // 日期 B 欄（1）、時段 F 欄（5）、人數 G 欄（6）
+  var dateColB = 1, timeColF = 5, peopleColG = 6;
+  var row = sheet.getRange(rowIndex, 1, rowIndex, 7).getValues()[0];
   var userId = row[2] ? String(row[2]).trim() : "";
-  var dateVal = row[1];
-  var timeStr = row[5] ? String(row[5]).trim() : "";
+  var dateVal = row[dateColB];
+  var timeStr = row[timeColF] != null ? String(row[timeColF]).trim() : "";
+  var peopleVal = (row[peopleColG] != null && !isNaN(Number(row[peopleColG]))) ? Math.max(1, parseInt(Number(row[peopleColG]), 10)) : 1;
   if (!userId) return Core.jsonResponse({ status: "error", message: "該筆缺少 userId" });
 
   var ss = getWaitlistSpreadsheet();
@@ -359,7 +398,7 @@ function markWaitlistPushed(e) {
   if (!channelId || !channelSecret) return Core.jsonResponse({ status: "error", message: "無法取得該店 LINE 憑證" });
 
   var waitlistDateStr = normalizeWaitlistDateStr(dateVal);
-  var slotsText = getSlotsTextForWaitlist(botId, waitlistDateStr, timeStr);
+  var slotsText = getSlotsTextForWaitlist(botId, waitlistDateStr, timeStr, peopleVal);
   var message = getWaitlistPushPrefix(waitlistDateStr, timeStr) + slotsText;
   var token = getLineAccessToken(channelId, channelSecret);
   if (!token) return Core.jsonResponse({ status: "error", message: "無法取得 LINE 存取權杖" });
@@ -379,8 +418,8 @@ function markWaitlistPushed(e) {
   var handledAt = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
   sheet.getRange(rowIndex, 4).setValue(WAITLIST_STATUS_PUSHED);
   var operatorName = (e && e.parameter && e.parameter.operator_name != null) ? String(e.parameter.operator_name).trim() : "";
-  if (operatorName) sheet.getRange(rowIndex, 7).setValue(operatorName);
-  sheet.getRange(rowIndex, 9).setValue(handledAt);
+  if (operatorName) sheet.getRange(rowIndex, 8).setValue(operatorName);
+  sheet.getRange(rowIndex, 10).setValue(handledAt);
   return Core.jsonResponse({ status: "success", message: "已傳送提醒" });
 }
 
@@ -405,7 +444,7 @@ function runWaitlistAutoPush() {
     return;
   }
 
-  var storeIdCol = 0, dateCol = 1, userIdCol = 2, statusCol = 3, timeCol = 5;
+  var storeIdCol = 0, dateCol = 1, userIdCol = 2, statusCol = 3, timeCol = 5, peopleCol = 6;
   var configSheet = ss.getSheetByName("店家基本資料");
   if (!configSheet) {
     runWaitlistDailySettlement();
@@ -424,7 +463,8 @@ function runWaitlistAutoPush() {
 
     var storeId = row[storeIdCol] != null ? String(row[storeIdCol]).trim() : "";
     var userId = row[userIdCol] ? String(row[userIdCol]).trim() : "";
-    var timeStr = row[timeCol] ? String(row[timeCol]).trim() : "";
+    var timeStr = (row.length > timeCol && row[timeCol] != null) ? String(row[timeCol]).trim() : "";
+    var peopleVal = (row.length > peopleCol && row[peopleCol] != null && !isNaN(Number(row[peopleCol]))) ? Math.max(1, parseInt(Number(row[peopleCol]), 10)) : 1;
     if (!userId) continue;
 
     var botId = null;
@@ -443,7 +483,7 @@ function runWaitlistAutoPush() {
     if (!token) continue;
 
     var waitlistDateStr = normalizeWaitlistDateStr(dateVal);
-    var slotsText = getSlotsTextForWaitlist(botId, waitlistDateStr, timeStr);
+    var slotsText = getSlotsTextForWaitlist(botId, waitlistDateStr, timeStr, peopleVal);
     var message = getWaitlistPushPrefix(waitlistDateStr, timeStr) + slotsText;
     try {
       if (typeof Core.sendLinePushText === "function") {

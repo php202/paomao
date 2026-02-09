@@ -55,11 +55,14 @@
     .waitlist-meta-copy { user-select: text; cursor: text; }
     .waitlist-name { color: #0066cc; font-weight: bold; cursor: pointer; border-bottom: 1px dashed #0066cc; }
     .waitlist-name:hover { color: #004499; border-bottom-color: #004499; background-color: #e6f7ff; }
+    .waitlist-slot-ok { color: #2e7d32; font-weight: bold; }
+    .waitlist-slot-full { color: #999; }
     .waitlist-item .row-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .waitlist-item .row-btns button { padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid #ccc; background: #fff; }
     .waitlist-item .row-btns .btn-push { background: #00B900; color: #fff; border-color: #00B900; }
     .waitlist-item .row-btns .btn-done-wl { background: #ff9900; color: #fff; border-color: #ff9900; }
     .waitlist-item .row-btns .btn-handled { background: #6c757d; color: #fff; border-color: #6c757d; }
+    .waitlist-item .row-btns button:disabled { opacity: 0.6; cursor: not-allowed; }
     
     #loading { text-align: center; color: #999; display: none; margin-top: 20px;}
     .msg-status.msg-status--danger { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
@@ -230,6 +233,14 @@
       <div class="form-row">
         <label>時段</label>
         <input type="text" id="waitlist-time" class="form-input" placeholder="選填，如 14:00">
+      </div>
+      <div class="form-row">
+        <label>人數</label>
+        <input type="number" id="waitlist-people" class="form-input" value="1" min="1" style="width:56px;" placeholder="1">
+      </div>
+      <div class="form-row">
+        <label>備註</label>
+        <input type="text" id="waitlist-remark" class="form-input" placeholder="選填，如 項目數">
       </div>
       <div style="display: flex; gap: 8px; margin-top: 12px;">
         <button type="button" id="waitlist-modal-submit" class="btn-action" style="flex:1;">送出</button>

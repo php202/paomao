@@ -15,8 +15,11 @@ const LINEBOT_SOURCE = path.join(GAS_ROOT, 'linebot');
 /** 預設 Google Drive linebot 資料夾（泡泡貓共用，有連結即可取得最新版） */
 const DEFAULT_DRIVE_LINEBOT = '/Users/yutsunghan/Library/CloudStorage/GoogleDrive-paopaomao.of@gmail.com/我的雲端硬碟/linebot';
 
-/** 下載資料夾：執行時一併清理檔名以 94256530_P01_ 開頭且為 .txt 的暫存檔 */
+/** 下載資料夾：執行時一併清理檔名以 94256530_P01_ 開頭且為 .txt、以及以「泡泡貓｜請款表單 - 銀行匯款格式_」開頭且為 .xlsx 的暫存檔 */
 const DOWNLOADS_DIR = '/Users/yutsunghan/Downloads';
+
+/** 請款表單 xlsx 檔名前綴（此開頭且為 .xlsx 的檔案會一併刪除） */
+const PAOPAO_XLSX_PREFIX = '泡泡貓｜請款表單 - 銀行匯款格式_';
 
 function getDefaultDrivePath() {
   // 1. 專案預設路徑（此機 Google Drive 雲端硬碟/linebot）
@@ -73,7 +76,7 @@ function main() {
     copyRecursive(LINEBOT_SOURCE, dest);
     console.log('✅ linebot 已同步到 Google Drive');
 
-    // 順便清理「我的雲端硬碟」根目錄與「Downloads」下檔名以 94256530_P01_ 開頭且為 .txt 的暫存檔
+    // 順便清理「我的雲端硬碟」根目錄與「Downloads」下：94256530_P01_*.txt、以及「泡泡貓｜請款表單 - 銀行匯款格式_」*.xlsx 的暫存檔
     const driveRoot = path.dirname(dest);
     let removed = removeMatchingP01Txt(driveRoot);
     if (removed > 0) console.log('🗑 已移除 ' + removed + ' 個符合 94256530_P01_*.txt 的檔案（雲端硬碟）');
@@ -81,6 +84,12 @@ function main() {
     // 清理「Downloads」下檔名以 94256530_P01_ 開頭且為 .txt 的暫存檔
     removed = removeMatchingP01Txt(DOWNLOADS_DIR);
     if (removed > 0) console.log('🗑 已移除 ' + removed + ' 個符合 94256530_P01_*.txt 的檔案（Downloads）');
+
+    // 清理以「泡泡貓｜請款表單 - 銀行匯款格式_」開頭且為 .xlsx 的暫存檔（雲端硬碟根目錄與 Downloads）
+    let removedXlsx = removeMatchingPaopaoXlsx(driveRoot);
+    if (removedXlsx > 0) console.log('🗑 已移除 ' + removedXlsx + ' 個符合 ' + PAOPAO_XLSX_PREFIX + '*.xlsx 的檔案（雲端硬碟）');
+    removedXlsx = removeMatchingPaopaoXlsx(DOWNLOADS_DIR);
+    if (removedXlsx > 0) console.log('🗑 已移除 ' + removedXlsx + ' 個符合 ' + PAOPAO_XLSX_PREFIX + '*.xlsx 的檔案（Downloads）');
   } catch (err) {
     console.error('同步失敗:', err.message);
     process.exit(1);
@@ -107,6 +116,30 @@ function removeMatchingP01Txt(dir) {
     }
   } catch (err) {
     console.error('清理 94256530_P01_*.txt 時錯誤:', err.message);
+  }
+  return count;
+}
+
+/** 檔名是否以「泡泡貓｜請款表單 - 銀行匯款格式_」開頭且為 .xlsx（才刪除） */
+function isPaopaoXlsxFilename(name) {
+  return name.startsWith(PAOPAO_XLSX_PREFIX) && name.toLowerCase().endsWith('.xlsx');
+}
+
+/** 在指定目錄刪除檔名以「泡泡貓｜請款表單 - 銀行匯款格式_」開頭且為 .xlsx 的檔案，回傳刪除數量 */
+function removeMatchingPaopaoXlsx(dir) {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return 0;
+  let count = 0;
+  try {
+    const names = fs.readdirSync(dir);
+    for (const name of names) {
+      if (!isPaopaoXlsxFilename(name)) continue;
+      const fullPath = path.join(dir, name);
+      if (!fs.statSync(fullPath).isFile()) continue;
+      fs.unlinkSync(fullPath);
+      count++;
+    }
+  } catch (err) {
+    console.error('清理 ' + PAOPAO_XLSX_PREFIX + '*.xlsx 時錯誤:', err.message);
   }
   return count;
 }

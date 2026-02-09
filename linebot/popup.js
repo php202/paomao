@@ -264,8 +264,13 @@ async function fetchWaitlist(botId) {
       var displayDate = item.displayDate || (item.date != null ? String(item.date) : '');
       var displayName = item.displayName || (item.userId ? String(item.userId).slice(0, 12) + '…' : '');
       var handler = item.handler ? String(item.handler).trim() : '';
+      var remark = item.remark ? String(item.remark).trim() : '';
+      var peopleVal = (item.people != null && item.people >= 1) ? item.people : 1;
+      var peopleLabel = peopleVal > 1 ? ' · ' + peopleVal + '人' : '';
       var nameEscaped = displayName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      var metaHtml = displayDate + ' · <span class="waitlist-name" title="點擊複製">' + nameEscaped + '</span>' + (handler ? ' · 處理人：' + handler.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '');
+      var remarkEscaped = remark ? remark.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '';
+      var slotLabel = item.slotAvailable === true ? ' · <span class="waitlist-slot-ok">有空位</span>' : (item.slotAvailable === false ? ' · <span class="waitlist-slot-full">仍滿位</span>' : '');
+      var metaHtml = displayDate + peopleLabel + ' · <span class="waitlist-name" title="點擊複製">' + nameEscaped + '</span>' + (handler ? ' · 處理人：' + handler.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '') + (remarkEscaped ? ' · 備註：' + remarkEscaped : '') + slotLabel;
       var div = document.createElement('div');
       div.className = 'waitlist-item';
       div.innerHTML = '<div class="row-meta waitlist-meta-copy">' + metaHtml + '</div>' +
@@ -288,9 +293,9 @@ async function fetchWaitlist(botId) {
       var btnPush = div.querySelector('.btn-push');
       var btnDoneWl = div.querySelector('.btn-done-wl');
       var btnHandled = div.querySelector('.btn-handled');
-      if (btnPush) btnPush.addEventListener('click', function () { doMarkWaitlistPushed(botId, this.getAttribute('data-row-index')); });
-      if (btnDoneWl) btnDoneWl.addEventListener('click', function () { doMarkWaitlistDone(this.getAttribute('data-row-index')); });
-      if (btnHandled) btnHandled.addEventListener('click', function () { doMarkWaitlistHandled(this.getAttribute('data-row-index')); });
+      if (btnPush) btnPush.addEventListener('click', function () { doMarkWaitlistPushed(botId, this.getAttribute('data-row-index'), this); });
+      if (btnDoneWl) btnDoneWl.addEventListener('click', function () { doMarkWaitlistDone(this.getAttribute('data-row-index'), this); });
+      if (btnHandled) btnHandled.addEventListener('click', function () { doMarkWaitlistHandled(this.getAttribute('data-row-index'), this); });
       listEl.appendChild(div);
     });
   } catch (err) {
@@ -303,8 +308,30 @@ function getOperatorName() {
   return el ? String(el.value || '').trim() : '';
 }
 
-async function doMarkWaitlistPushed(botId, rowIndex) {
+/** 該列候補的三顆按鈕：loading=true 時全部 disabled、被點的那顆顯示「處理中…」；loading=false 時還原 */
+function setWaitlistRowButtonsState(buttonEl, loading) {
+  if (!buttonEl || !buttonEl.closest) return;
+  var item = buttonEl.closest('.waitlist-item');
+  if (!item) return;
+  var btns = item.querySelectorAll('.row-btns button');
+  for (var i = 0; i < btns.length; i++) {
+    var b = btns[i];
+    if (loading) {
+      b.setAttribute('data-waitlist-original', b.textContent);
+      b.disabled = true;
+      if (b === buttonEl) b.textContent = '處理中…';
+    } else {
+      b.disabled = false;
+      var orig = b.getAttribute('data-waitlist-original');
+      if (orig != null) b.textContent = orig;
+      b.removeAttribute('data-waitlist-original');
+    }
+  }
+}
+
+async function doMarkWaitlistPushed(botId, rowIndex, buttonEl) {
   if (!botId || !rowIndex) return;
+  setWaitlistRowButtonsState(buttonEl, true);
   var operatorName = getOperatorName();
   try {
     var url = `${GAS_API_URL}?action=markWaitlistPushed&botId=${encodeURIComponent(botId)}&rowIndex=${encodeURIComponent(rowIndex)}`;
@@ -312,12 +339,13 @@ async function doMarkWaitlistPushed(botId, rowIndex) {
     var resp = await fetch(url);
     var data = await resp.json();
     if (data.status === 'success') fetchWaitlist(botId);
-    else alert(data.message || '傳送失敗');
-  } catch (err) { alert('連線失敗'); }
+    else { alert(data.message || '傳送失敗'); setWaitlistRowButtonsState(buttonEl, false); }
+  } catch (err) { alert('連線失敗'); setWaitlistRowButtonsState(buttonEl, false); }
 }
 
-async function doMarkWaitlistDone(rowIndex) {
+async function doMarkWaitlistDone(rowIndex, buttonEl) {
   if (!rowIndex) return;
+  setWaitlistRowButtonsState(buttonEl, true);
   var operatorName = getOperatorName();
   try {
     var url = `${GAS_API_URL}?action=markWaitlistDone&rowIndex=${encodeURIComponent(rowIndex)}`;
@@ -325,12 +353,13 @@ async function doMarkWaitlistDone(rowIndex) {
     var resp = await fetch(url);
     var data = await resp.json();
     if (data.status === 'success' && currentBotId) fetchWaitlist(currentBotId);
-    else if (data.message) alert(data.message);
-  } catch (err) { alert('連線失敗'); }
+    else { if (data.message) alert(data.message); setWaitlistRowButtonsState(buttonEl, false); }
+  } catch (err) { alert('連線失敗'); setWaitlistRowButtonsState(buttonEl, false); }
 }
 
-async function doMarkWaitlistHandled(rowIndex) {
+async function doMarkWaitlistHandled(rowIndex, buttonEl) {
   if (!rowIndex) return;
+  setWaitlistRowButtonsState(buttonEl, true);
   var operatorName = getOperatorName();
   try {
     var url = `${GAS_API_URL}?action=markWaitlistHandled&rowIndex=${encodeURIComponent(rowIndex)}`;
@@ -338,8 +367,8 @@ async function doMarkWaitlistHandled(rowIndex) {
     var resp = await fetch(url);
     var data = await resp.json();
     if (data.status === 'success' && currentBotId) fetchWaitlist(currentBotId);
-    else if (data.message) alert(data.message);
-  } catch (err) { alert('連線失敗'); }
+    else { if (data.message) alert(data.message); setWaitlistRowButtonsState(buttonEl, false); }
+  } catch (err) { alert('連線失敗'); setWaitlistRowButtonsState(buttonEl, false); }
 }
 
 var waitlistModalUserId = null;
@@ -602,6 +631,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const waitlistModal = document.getElementById('waitlist-modal');
   const waitlistDate = document.getElementById('waitlist-date');
   const waitlistTime = document.getElementById('waitlist-time');
+  const waitlistPeople = document.getElementById('waitlist-people');
+  const waitlistRemark = document.getElementById('waitlist-remark');
   const waitlistModalSubmit = document.getElementById('waitlist-modal-submit');
   const waitlistModalCancel = document.getElementById('waitlist-modal-cancel');
   if (waitlistModalSubmit && waitlistDate) {
@@ -609,13 +640,17 @@ document.addEventListener('DOMContentLoaded', () => {
       var dateVal = waitlistDate.value.trim();
       if (!dateVal) { alert('請選擇候補日期'); return; }
       var timeVal = (waitlistTime && waitlistTime.value) ? waitlistTime.value.trim() : '';
+      var peopleVal = (waitlistPeople && waitlistPeople.value !== '') ? Math.max(1, parseInt(waitlistPeople.value, 10) || 1) : 1;
+      var remarkVal = (waitlistRemark && waitlistRemark.value) ? waitlistRemark.value.trim() : '';
       if (!currentBotId || !waitlistModalUserId) { alert('請重新開啟此視窗'); closeWaitlistModal(); return; }
       waitlistModalSubmit.disabled = true;
       waitlistModalSubmit.textContent = '送出中...';
       try {
         var url = `${GAS_API_URL}?action=addWaitlist&botId=${encodeURIComponent(currentBotId)}&date=${encodeURIComponent(dateVal)}&userId=${encodeURIComponent(waitlistModalUserId)}`;
         if (timeVal) url += '&time=' + encodeURIComponent(timeVal);
+        if (peopleVal > 1) url += '&people=' + encodeURIComponent(peopleVal);
         if (waitlistModalUserName) url += '&name=' + encodeURIComponent(waitlistModalUserName);
+        if (remarkVal) url += '&remark=' + encodeURIComponent(remarkVal);
         var resp = await fetch(url);
         var data = await resp.json();
         if (data.status === 'success') {
