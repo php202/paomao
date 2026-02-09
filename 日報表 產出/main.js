@@ -1,7 +1,9 @@
 /**
- * 讀取 Core API 相關設定。
- * 本專案不再使用 Core 程式庫，一律透過 Core API URL 取得資料。
- * 需在本專案指令碼屬性設定：
+ * 日報表 產出 - 本專案不依賴 Core 程式庫，一律透過 Core API URL 取得資料。
+ * 若出現 "ReferenceError: Core is not defined"：請在專案「專案設定」→「程式庫」移除 Core；
+ * 確認試算表綁定的附加專案為本專案；並執行 clasp push 部署最新版。
+ *
+ * 指令碼屬性：
  * - PAO_CAT_CORE_API_URL：PaoMao_Core「網路應用程式」部署網址（結尾 /exec）
  * - PAO_CAT_SECRET_KEY：與 Core 相同的密鑰
  */
@@ -81,6 +83,12 @@ function handleReportApiRequest(params) {
       return jsonReportOut({ status: 'ok', message: '日報產出已執行' });
     } catch (err) {
       const msg = (err && err.message) ? err.message : String(err);
+      if (msg.indexOf('Core is not defined') !== -1) {
+        return jsonReportOut({
+          status: 'error',
+          message: 'ReferenceError: Core is not defined。本專案已改為使用 Core API，不應依賴 Core 程式庫。請依序檢查：1) 專案「擴充功能→Apps Script 專案」確認此試算表綁定的是「日報表 產出」專案；2) 在該專案「專案設定」中移除 Core 程式庫（程式庫應為空）；3) 指令碼屬性已設定 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY；4) 本機已執行 clasp push 部署最新版。'
+        });
+      }
       return jsonReportOut({ status: 'error', message: msg });
     }
   }
