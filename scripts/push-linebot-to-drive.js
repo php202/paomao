@@ -3,6 +3,9 @@
  * 將 gas/linebot（Chrome 擴充「LINE Bot 客服小幫手」）同步到 Google Drive 資料夾，
  * 有連結的人即可下載到最新版本。執行 npm run push-all 時會一併同步。
  *
+ * 僅同步「讓擴充能跑」的檔案，不包含 .env、.env.example、node_modules、
+ * bump-version.js、release.zip、package.json 等開發/憑證用檔案。
+ *
  * 預設同步到：Google Drive「我的雲端硬碟/linebot」（本機路徑見下方 DEFAULT_DRIVE_LINEBOT）。
  * 若要改路徑可設定環境變數：export GOOGLE_DRIVE_LINEBOT_PATH="/path/to/linebot"
  */
@@ -20,6 +23,17 @@ const DOWNLOADS_DIR = '/Users/yutsunghan/Downloads';
 
 /** 請款表單 xlsx 檔名前綴（此開頭且為 .xlsx 的檔案會一併刪除） */
 const PAOPAO_XLSX_PREFIX = '泡泡貓｜請款表單 - 銀行匯款格式_';
+
+/** 同步到 Drive 時跳過的檔名（僅同步擴充執行所需，不含 env / 開發用） */
+const SKIP_NAMES = new Set([
+  '.env',
+  '.env.example',
+  'node_modules',
+  'bump-version.js',
+  'release.zip',
+  'package.json',
+  'package-lock.json',
+]);
 
 function getDefaultDrivePath() {
   // 1. 專案預設路徑（此機 Google Drive 雲端硬碟/linebot）
@@ -42,11 +56,14 @@ function getDefaultDrivePath() {
 }
 
 function copyRecursive(src, dest) {
+  const name = path.basename(src);
+  if (SKIP_NAMES.has(name)) return;
+
   const stat = fs.statSync(src);
   if (stat.isDirectory()) {
     if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-    for (const name of fs.readdirSync(src)) {
-      copyRecursive(path.join(src, name), path.join(dest, name));
+    for (const child of fs.readdirSync(src)) {
+      copyRecursive(path.join(src, child), path.join(dest, child));
     }
     return;
   }

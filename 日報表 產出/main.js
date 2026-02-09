@@ -1,7 +1,6 @@
-const coreConfig = Core.getCoreConfig();
-
 /**
  * 讀取 Core API 相關設定。
+ * 本專案不再使用 Core 程式庫，一律透過 Core API URL 取得資料。
  * 需在本專案指令碼屬性設定：
  * - PAO_CAT_CORE_API_URL：PaoMao_Core「網路應用程式」部署網址（結尾 /exec）
  * - PAO_CAT_SECRET_KEY：與 Core 相同的密鑰
@@ -13,10 +12,97 @@ function getCoreApiParams() {
   return { url, key, useApi: url.length > 0 && key.length > 0 };
 }
 
+/**
+ * 呼叫 Core API（GET）。回傳 { status, data } 或 null（連線/解析失敗）。
+ */
+function callCoreApi(coreApiUrl, coreApiKey, action, extraParams) {
+  if (!coreApiUrl || !coreApiKey) return null;
+  const sep = coreApiUrl.indexOf('?') >= 0 ? '&' : '?';
+  let q = sep + 'key=' + encodeURIComponent(coreApiKey) + '&action=' + encodeURIComponent(action);
+  if (extraParams && typeof extraParams === 'object') {
+    Object.keys(extraParams).forEach(function (k) {
+      if (extraParams[k] != null && extraParams[k] !== '') {
+        q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(String(extraParams[k]));
+      }
+    });
+  }
+  try {
+    const res = UrlFetchApp.fetch(coreApiUrl + q, { muteHttpExceptions: true, followRedirects: true });
+    const text = res.getContentText();
+    return JSON.parse(text);
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 日報表 產出 - Web App API（URL 化）
+ * 部署為「網路應用程式」後，可用 GET/POST 觸發日報產出。
+ *
+ * 【呼叫方式】
+ * GET:  PAO_CAT_REPORT_API_URL?key=密鑰&action=runDailyReport
+ * POST: body JSON: { "key": "密鑰", "action": "runDailyReport" }
+ *
+ * 密鑰：與本專案指令碼屬性 PAO_CAT_SECRET_KEY 相同（可與 Core API 共用）。
+ * action 支援：runDailyReport（執行產出各店日報，等同選單「產出各店日報」）
+ */
+function doGet(e) {
+  const params = (e && e.parameter) ? e.parameter : {};
+  return handleReportApiRequest(params);
+}
+
+function doPost(e) {
+  let params = {};
+  if (e && e.postData && e.postData.contents) {
+    try {
+      params = JSON.parse(e.postData.contents);
+    } catch (err) {
+      return jsonReportOut({ status: 'error', message: 'JSON 解析失敗' });
+    }
+  }
+  return handleReportApiRequest(params);
+}
+
+function jsonReportOut(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function handleReportApiRequest(params) {
+  const key = (params.key != null) ? String(params.key).trim() : '';
+  const expected = getCoreApiParams().key;
+  if (!expected || key !== expected) {
+    return jsonReportOut({ status: 'error', message: 'unauthorized' });
+  }
+  const action = (params.action != null) ? String(params.action).trim() : '';
+  if (action === 'runDailyReport' || action === 'runAccNeed') {
+    try {
+      runAccNeed();
+      return jsonReportOut({ status: 'ok', message: '日報產出已執行' });
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      return jsonReportOut({ status: 'error', message: msg });
+    }
+  }
+  return jsonReportOut({ status: 'error', message: '未知 action: ' + (action || '(未提供)') });
+}
+
 function runAccNeed() {
-  const externalSs = SpreadsheetApp.openById(coreConfig.DAILY_ACCOUNT_REPORT_SS_ID);
-  
-  // 取得兩張工作表
+  const { url: coreApiUrl, key: coreApiKey, useApi } = getCoreApiParams();
+  if (!useApi) {
+    throw new Error('請在指令碼屬性設定 PAO_CAT_CORE_API_URL 與 PAO_CAT_SECRET_KEY，本專案改由 Core API 取得資料（不再使用 Core 程式庫）。');
+  }
+
+  // --- 從 Core API 取得日報試算表 ID ---
+  const configRes = callCoreApi(coreApiUrl, coreApiKey, 'getCoreConfig', {});
+  const ssId = (configRes && configRes.status === 'ok' && configRes.data && configRes.data.DAILY_ACCOUNT_REPORT_SS_ID)
+    ? String(configRes.data.DAILY_ACCOUNT_REPORT_SS_ID).trim()
+    : '';
+  if (!ssId) {
+    throw new Error('Core API getCoreConfig 未回傳 DAILY_ACCOUNT_REPORT_SS_ID，請確認 PaoMao_Core 專案設定。');
+  }
+
+  const externalSs = SpreadsheetApp.openById(ssId);
   const sheetAll = externalSs.getSheetByName('營收報表');       // 全門市
   const sheetDirect = externalSs.getSheetByName('營收報表_直營'); // 直營店
 
@@ -24,7 +110,6 @@ function runAccNeed() {
   const getFormattedDate = (date) => Utilities.formatDate(date, timeZone, 'yyyy-MM-dd');
 
   // --- 1. 計算日期範圍 (每次執行都會重新檢查 Excel 進度) ---
-  // 因為我們會逐日寫入，所以這個檢查邏輯變得非常重要，它是「自動接關」的關鍵
   const lastRowCheck = sheetAll.getLastRow();
   let startDate = new Date('2026-01-01');
 
@@ -44,20 +129,19 @@ function runAccNeed() {
     console.log("資料已是最新，無需更新。");
     return;
   }
-  
+
   console.log(`本次預計處理區間: ${getFormattedDate(startDate)} ~ ${getFormattedDate(endDate)}`);
 
-  // --- 2. 取得 Core API 設定與門店列表 ---
-  const { url: coreApiUrl, key: coreApiKey, useApi } = getCoreApiParams();
-
-  const storeMap = Core.getLineSayDouInfoMap() || {};
+  // --- 2. 從 Core API 取得門店列表 ---
+  const storeRes = callCoreApi(coreApiUrl, coreApiKey, 'getLineSayDouInfoMap', {});
+  const storeMap = (storeRes && storeRes.status === 'ok' && storeRes.data && typeof storeRes.data === 'object') ? storeRes.data : {};
   let stores = [];
   for (const info of Object.values(storeMap)) {
-    if (info.saydouId) {
+    if (info && info.saydouId) {
       stores.push({
         storid: info.saydouId,
-        alias: info.name,
-        isDirect: info.isDirect
+        alias: info.name || '',
+        isDirect: info.isDirect === true
       });
     }
   }
@@ -100,35 +184,13 @@ function runAccNeed() {
     for (const store of stores) {
       // console.log(dateStr, store.storid); // 減少 log 避免執行過慢，除非除錯
 
-      // 優先透過 Core Web App 取得營收資料；若未設定 Core API 則退回直接呼叫 Core 程式庫
-      let apiResponse = null;
-      if (useApi) {
-        const sep = coreApiUrl.indexOf('?') >= 0 ? '&' : '?';
-        const q =
-          sep +
-          'key=' + encodeURIComponent(coreApiKey) +
-          '&action=fetchDailyIncome' +
-          '&date=' + encodeURIComponent(dateStr) +
-          '&storeId=' + encodeURIComponent(String(store.storid));
-        try {
-          const res = UrlFetchApp.fetch(coreApiUrl + q, { muteHttpExceptions: true, followRedirects: true });
-          const text = res.getContentText();
-          const json = JSON.parse(text);
-          if (json && json.status === 'ok') {
-            apiResponse = json.data || null;
-          } else {
-            console.error(`Core API dailyIncome 失敗 (${dateStr}, ${store.storid}): ` + (json && json.message ? json.message : '未知錯誤'));
-          }
-        } catch (e) {
-          console.error(`Core API dailyIncome 連線錯誤 (${dateStr}, ${store.storid}): ${e.message || e}`);
-        }
+      // 一律透過 Core API 取得單店單日營收（本專案不再使用 Core 程式庫）
+      const dailyRes = callCoreApi(coreApiUrl, coreApiKey, 'fetchDailyIncome', { date: dateStr, storeId: String(store.storid) });
+      const apiResponse = (dailyRes && dailyRes.status === 'ok') ? dailyRes.data : null;
+      if (!apiResponse && dailyRes && dailyRes.message) {
+        console.error(`Core API fetchDailyIncome 失敗 (${dateStr}, ${store.storid}): ` + dailyRes.message);
       }
 
-      // 若 Core API 未設定或失敗，改用 Core 程式庫直接打 SayDou
-      if (!apiResponse) {
-        apiResponse = Core.fetchDailyIncome(dateStr, store.storid);
-      }
-      
       if (apiResponse && apiResponse.data && apiResponse.data.totalRow) {
         const runData = apiResponse.data.totalRow;
 

@@ -60,7 +60,33 @@
 ## 3. 若之後執行 runDebugTest 有錯誤
 
 - **Core 未載入 / getCoreConfig 等找不到**：確認該專案 `appsscript.json` 已掛 **Core 程式庫**（libraryId 指向 PaoMao_Core），且 PaoMao_Core 已部署為程式庫。
+- **「找不到 ID 為 Core 的程式庫」**：見下方 **3.1 找不到 Core 程式庫**。
 - **請款表單內容 的 doGet**：使用 `Core.jsonResponse`，需依賴 Core 程式庫。
+
+### 3.1 找不到 ID 為 Core 的程式庫（可能已遭刪除，或是你沒有讀取權限？）
+
+此錯誤表示「日報表 產出」無法讀取 PaoMao_Core 專案（程式庫 ID = PaoMao_Core 的 scriptId）。依序檢查：
+
+1. **同一個 Google 帳號**
+   - 確認「日報表 產出」和「PaoMao_Core」都是用**同一個 Google 帳號**在 [script.google.com](https://script.google.com) 開啟。
+   - 若日報表 產出是 A 帳號、PaoMao_Core 是 B 帳號，就會出現沒有讀取權限。
+
+2. **共用 PaoMao_Core（若為不同帳號）**
+   - 用**擁有 PaoMao_Core 的帳號**開啟 [PaoMao_Core 專案](https://script.google.com/home/projects/1ZenbGdlvtpTjiKlyutqeV5bDjRKOhkK9O6-m4GnriftOzMU4f6RaaLm7/edit)。
+   - 左側 **專案設定**（齒輪）→ 下方 **共用** 或從 **檔案 → 專案屬性** 查看擁有者 → 新增「日報表 產出」使用的那個 Google 帳號，至少 **檢視者** 權限。
+   - 回到「日報表 產出」專案，重新整理或重新加入程式庫。
+
+3. **在「日報表 產出」重新加入 Core 程式庫**
+   - 開啟 [日報表 產出](https://script.google.com/home/projects/1tKLWvY9pdqyasg0MoapPW5XhoAxNTw8LZO4Zxvpsjkz6NoSwelDN6vrv/edit) → 左側 **程式庫**。
+   - 若 Core 顯示紅字或錯誤，可先點 Core 右側 **移除**。
+   - 點 **+**（新增程式庫）→ **程式庫 ID** 輸入：`1ZenbGdlvtpTjiKlyutqeV5bDjRKOhkK9O6-m4GnriftOzMU4f6RaaLm7`。
+   - 版本選 **開發模式**（或「頭版」），識別碼填 **Core** → **新增**。
+   - 儲存後重新載入專案，錯誤應會消失。
+
+4. **PaoMao_Core 曾刪除或重新建立**
+   - 若 PaoMao_Core 專案曾刪除或複製成新專案，script ID 會變。
+   - 到本機 `gas/PaoMao_Core/.clasp.json` 查看目前的 `scriptId`，或從 PaoMao_Core 專案網址取得。
+   - 把「日報表 產出」的 `appsscript.json` 裡 Core 的 `libraryId` 改成新的 scriptId，存檔後在「日報表 產出」目錄執行 `npm run push`（或 `clasp push`），再在編輯器重新整理。
 
 ---
 

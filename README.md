@@ -22,7 +22,7 @@
 | 資料夾 | 說明 |
 |--------|------|
 | PaoMao_Core | 共用程式碼來源；對外 API 網址（PAO_CAT_CORE_API_URL）請用「網路應用程式」部署，見 **DEPLOY.md** |
-| 日報表 產出 | 日報表 |
+| 日報表 產出 | 日報表；可部署為網路應用程式，以 URL 觸發產出（PAO_CAT_REPORT_API_URL?key=密鑰&action=runDailyReport），見 main.js 註解 |
 | 各店訊息一覽表 | 各店訊息 |
 | 每週三：顧客退費 | 顧客退費 |
 | 泡泡貓 門市 預約表單 PAOPAO | 門市預約表單 |

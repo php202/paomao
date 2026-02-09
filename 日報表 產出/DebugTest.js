@@ -1,5 +1,6 @@
 /**
  * 日報表 產出 - Debug / Test 入口
+ * 本專案不再使用 Core 程式庫，改由 Core API URL 取得資料。
  * 執行方式：在專案目錄下 clasp run runDebugTest 或在編輯器選 runDebugTest 執行
  */
 function runDebugTest() {
@@ -7,39 +8,30 @@ function runDebugTest() {
   const results = { project: projectName, checks: [], ok: true };
 
   try {
-    // === Core 程式庫：驗證是否有拉到 ===
-    const coreFns = ['getCoreConfig', 'getLineSayDouInfoMap', 'getStoresInfo', 'jsonResponse', 'getBankInfoMap', 'getBearerTokenFromSheet', 'sendLineReply', 'sendLineReplyObj'];
-    if (typeof Core !== 'undefined') {
-      coreFns.forEach(function (fn) {
-        const ok = typeof Core[fn] === 'function';
-        results.checks.push({ name: 'Core.' + fn, ok: ok });
-        if (!ok) results.ok = false;
-      });
-      if (typeof Core.getCoreConfig === 'function') {
-        const config = Core.getCoreConfig();
-        const keys = config ? Object.keys(config) : [];
-        results.checks.push({ name: 'Core.getCoreConfig 回傳鍵', keys: keys, ok: keys.length > 0 });
-      }
-    } else {
-      results.checks.push({ name: 'Core', note: 'Core 程式庫未載入', ok: false });
-      results.ok = false;
-    }
+    // === Core API 設定（指令碼屬性）===
+    const { url, key, useApi } = getCoreApiParams();
+    results.checks.push({ name: 'PAO_CAT_CORE_API_URL 已設定', ok: url.length > 0 });
+    results.checks.push({ name: 'PAO_CAT_SECRET_KEY 已設定', ok: key.length > 0 });
+    results.checks.push({ name: 'useApi（可呼叫 Core API）', ok: useApi });
+    if (!useApi) results.ok = false;
 
-    if (typeof outputJSON === 'function') {
-      results.checks.push({ name: 'outputJSON', ok: true });
-    }
-    // 不測試 reply / sendLineReply，避免實際發送訊息影響客戶
-    if (typeof doPost === 'function') {
-      results.checks.push({ name: 'doPost', ok: true });
-    }
-    if (typeof handleCheckInAPI === 'function') {
-      results.checks.push({ name: 'handleCheckInAPI', ok: true });
-    }
-    if (typeof handleBindSession === 'function') {
-      results.checks.push({ name: 'handleBindSession', ok: true });
+    // === 本專案函式存在 ===
+    const fns = ['getCoreApiParams', 'callCoreApi', 'runAccNeed', 'doGet', 'doPost', 'handleReportApiRequest', 'jsonReportOut'];
+    fns.forEach(function (fn) {
+      const ok = typeof globalThis[fn] === 'function';
+      results.checks.push({ name: fn, ok: ok });
+      if (!ok) results.ok = false;
+    });
+
+    // 可選：若 useApi 為 true，可打一次 getCoreConfig 驗證連線（不寫入試算表）
+    if (useApi && typeof callCoreApi === 'function') {
+      const res = callCoreApi(url, key, 'getCoreConfig', {});
+      const configOk = res && res.status === 'ok' && res.data && res.data.DAILY_ACCOUNT_REPORT_SS_ID;
+      results.checks.push({ name: 'Core API getCoreConfig 連線', ok: configOk });
+      if (!configOk) results.ok = false;
     }
   } catch (e) {
-    results.checks.push({ name: 'runDebugTest', error: e.message, ok: false });
+    results.checks.push({ name: 'runDebugTest', error: (e && e.message) ? e.message : String(e), ok: false });
     results.ok = false;
   }
 
