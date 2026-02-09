@@ -20,10 +20,10 @@ function sendLocationRequest(replyToken, userId) {
     });
   } catch (e) {}
 
-  // C. 每月 1–7 號顯示「上月小費」按鈕，點擊後會送出「上月小費」取得小費報表
+  // C. 每月 1–7 號僅對已開通帳號顯示「上月小費」按鈕（本函式已於開頭檢查 auth，未開通不會進入）
   const actions = [{ "type": "uri", "label": "📍 點擊開啟打卡", "uri": uri }];
   const dayOfMonth = new Date().getDate();
-  if (dayOfMonth >= 1 && dayOfMonth <= 7) {
+  if (dayOfMonth >= 1 && dayOfMonth <= 7 && auth.isAuthorized) {
     actions.push({ "type": "message", "label": "上月小費", "text": "上月小費" });
   }
 

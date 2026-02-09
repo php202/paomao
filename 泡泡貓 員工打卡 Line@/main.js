@@ -70,17 +70,28 @@ function getCustomerInfoPageUrl() {
 }
 
 // 2. 建立一個簡單的縮寫函式，不用每次都打 Core.sendLineReply(..., ..., LINE_TOKEN)
+// Invalid reply token：LINE 重試或 token 過期時會發生，token 已無法使用，不 rethrow、不寫入錯誤清單
 function reply(replyToken, content) {
-  // (A) 如果傳入的是純文字 (String) -> 呼叫 sendLineReply
-  if (typeof content === 'string') {
-    Core.sendLineReply(replyToken, content, LINE_TOKEN_PAOSTAFF);
-  } 
-  // (B) 如果傳入的是物件或陣列 -> 呼叫 sendLineReplyObj
-  else {
-    // 防呆：LINE API 的 messages 必須是陣列 (Array)
-    // 如果使用者只傳入單一物件 (Object)，我們自動幫他包成陣列 [Object]
-    const messages = Array.isArray(content) ? content : [content];
-    Core.sendLineReplyObj(replyToken, messages, LINE_TOKEN_PAOSTAFF);
+  try {
+    // (A) 如果傳入的是純文字 (String) -> 呼叫 sendLineReply
+    if (typeof content === 'string') {
+      Core.sendLineReply(replyToken, content, LINE_TOKEN_PAOSTAFF);
+    } 
+    // (B) 如果傳入的是物件或陣列 -> 呼叫 sendLineReplyObj
+    else {
+      // 防呆：LINE API 的 messages 必須是陣列 (Array)
+      // 如果使用者只傳入單一物件 (Object)，我們自動幫他包成陣列 [Object]
+      const messages = Array.isArray(content) ? content : [content];
+      Core.sendLineReplyObj(replyToken, messages, LINE_TOKEN_PAOSTAFF);
+    }
+  } catch (e) {
+    var msg = (e && e.message) ? String(e.message) : String(e);
+    if (msg.indexOf("Invalid reply token") !== -1) {
+      // 已知狀況：LINE 重試或 token 過期，不 rethrow、不寫入錯誤清單
+      try { console.log("[reply] Invalid reply token，已略過（通常為 LINE 重試）"); } catch (_) {}
+      return;
+    }
+    throw e;
   }
 }
 // Debug helper: 直接測試 Core.sendLineReply 是否可用
@@ -655,8 +666,12 @@ function routeMessageEvent(event) {
         }
       }
 
-      // 3.5a 上月小費：任何人可檢視。管理者看負責店家、員工看備註含自己員工編號；未在清單者取得上月全部小費試算表連結。
+      // 3.5a 上月小費：僅已開通帳號可檢視（須在員工清單／管理者清單）；管理者看負責店家、員工看備註含自己員工編號。
       if (text.trim() === "上月小費" || text.indexOf("上月小費") >= 0) {
+        if (!auth.isAuthorized) {
+          reply(replyToken, "⚠️ 你的帳號尚未開通，請等待管理員開通後再使用「上月小費」。");
+          return;
+        }
         try {
           var isManager = auth.identity && auth.identity.indexOf("manager") !== -1;
           var isEmployee = auth.identity && auth.identity.indexOf("employee") !== -1;
