@@ -188,7 +188,7 @@ function issueInvoiceViaCoreApi(storeInfo, odooNumber, buyType, items) {
 /**
  * 開發票：由選單「🚀 開發票」呼叫。
  * 掃描「2026/ACH紀錄」：登陸ach＝true、有 Odoo 單號、發票號碼為空 的列。
- * 若已設 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY 則改由 Core API 拿取明細與開票，否則使用 Core 程式庫。
+ * 一律透過 Core API 拿取明細與開票（需設定 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY）。
  */
 function issueInvoice() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -197,8 +197,11 @@ function issueInvoice() {
     SpreadsheetApp.getUi().alert('找不到工作表「2026/ACH紀錄」。');
     return;
   }
-  const data = sheet.getDataRange().getValues();
   const { useApi } = getCoreApiParams();
+  if (!useApi) {
+    SpreadsheetApp.getUi().alert('請在指令碼屬性設定 PAO_CAT_CORE_API_URL 與 PAO_CAT_SECRET_KEY（開發票改由 Core API 執行）。');
+    return;
+  }
 
   let bankInfoMap;
   try {
@@ -207,6 +210,8 @@ function issueInvoice() {
     SpreadsheetApp.getUi().alert('設定錯誤：' + e.toString());
     return;
   }
+
+  const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
@@ -226,23 +231,13 @@ function issueInvoice() {
       continue;
     }
 
-    let odooLines;
-    if (useApi) {
-      const apiResult = fetchOdooInvoiceFromCoreApi(odooNumber);
-      odooLines = apiResult.data;
-      if (odooLines == null) {
-        const errMsg = apiResult.error || '未知錯誤';
-        console.error(`Core API 取得 Odoo 明細失敗 (${odooNumber}): ${errMsg}`);
-        sheet.getRange(i + 1, 18).setValue('Odoo 明細失敗：' + errMsg);
-        continue;
-      }
-    } else {
-      try {
-        odooLines = Core.getOdooInvoiceJSON(odooNumber);
-      } catch (e) {
-        console.error(`Odoo 明細取得失敗 (${odooNumber}): ${e.message}`);
-        continue;
-      }
+    const apiResult = fetchOdooInvoiceFromCoreApi(odooNumber);
+    const odooLines = apiResult.data;
+    if (odooLines == null) {
+      const errMsg = apiResult.error || '未知錯誤';
+      console.error(`Core API 取得 Odoo 明細失敗 (${odooNumber}): ${errMsg}`);
+      sheet.getRange(i + 1, 18).setValue('Odoo 明細失敗：' + errMsg);
+      continue;
     }
 
     const items = (odooLines || [])
@@ -265,13 +260,7 @@ function issueInvoice() {
     SpreadsheetApp.flush();
 
     try {
-      let result;
-      if (useApi) {
-        result = issueInvoiceViaCoreApi(storeInfo, odooNumber, buytype, items);
-      }
-      if (!useApi || result == null) {
-        result = Core.issueInvoice(storeInfo, odooNumber, buytype, items);
-      }
+      const result = issueInvoiceViaCoreApi(storeInfo, odooNumber, buytype, items);
       if (result && result.success === 'true') {
         sheet.getRange(i + 1, 14).setValue(result.code || '');
         sheet.getRange(i + 1, 18).setValue(''); // 成功時清空 R 欄錯誤訊息

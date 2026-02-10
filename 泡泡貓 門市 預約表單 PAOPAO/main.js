@@ -39,7 +39,8 @@ function doPost(e) {
             const userId = (event.source && event.source.userId) || '';
             const auth = typeof Core.getManagerManagedStores === 'function' ? Core.getManagerManagedStores(userId) : { isManager: false, managedStores: [] };
             if (!auth.isManager) {
-              Core.sendLineReply(event.replyToken, '此報告僅限管理者使用。請確認您已於「管理者清單」中設定。', paopaoToken);
+              // 非管理者查詢報告時不再回覆提示訊息（依需求隱藏此文字）
+              return;
             } else if (!auth.managedStores || auth.managedStores.length === 0) {
               Core.sendLineReply(event.replyToken, '請於「管理者清單」設定您管理的門市（第 3 欄）。', paopaoToken);
             } else {

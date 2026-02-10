@@ -114,20 +114,20 @@ function exportToExcelWithFilter() {
   // 3. 匯出 Excel 連結
   const downloadUrl = `https://docs.google.com/spreadsheets/d/${ss.getId()}/export?format=xlsx&gid=${tempSheet.getSheetId()}`;
 
-  const htmlOutput = HtmlService
-    .createHtmlOutput(`<p>資料已整理到 **${tempSheetName}** 工作表。</p><p><a href="${downloadUrl}" target="_blank" onclick="google.script.host.close()">點擊此處下載 Excel (.xlsx) 檔案</a></p><p>下載完成後，請重新整理試算表，以便自動刪除暫存工作表。</p>`)
-    .setHeight(150)
-    .setWidth(300);
-
-  SpreadsheetApp.getUi().showModalDialog(htmlOutput, 'Excel 匯出完成');
-  // 4. 設置定時觸發器以刪除暫存工作表（使用者重新整理或關閉對話框後）
-  // 由於 Apps Script 的限制，無法在 showModalDialog 關閉後立即執行刪除。
-  // 我們可以讓一個簡單的函數在延遲後執行。
-  // 或是直接在一個獨立的函數中手動刪除。
-  // 為了安全起見，我們將刪除動作獨立出來，並提示使用者手動刪除或在下載完成後重新整理。
-
-  // 設置一個在使用者關閉對話框後可手動執行的刪除指令
-  SpreadsheetApp.getUi().alert(`請注意：下載完成後，您可以點選「擴充功能」->「刪除暫存工作表」來刪除 ${tempSheetName}。`);
-
+  try {
+    const ui = SpreadsheetApp.getUi();
+    const htmlOutput = HtmlService
+      .createHtmlOutput(`<p>資料已整理到 <b>${tempSheetName}</b> 工作表。</p><p><a href="${downloadUrl}" target="_blank" onclick="google.script.host.close()">點擊此處下載 Excel (.xlsx) 檔案</a></p><p>下載完成後，請點選「擴充功能」→「刪除暫存工作表」來刪除暫存檔。</p>`)
+      .setHeight(150)
+      .setWidth(300);
+    ui.showModalDialog(htmlOutput, 'Excel 匯出完成');
+    ui.alert('下載完成後，請點選「擴充功能」→「刪除暫存工作表」來刪除 ' + tempSheetName + '。');
+  } catch (e) {
+    // 無 UI 情境（從編輯器 Run、觸發器、或試算表未開啟）：記入日誌，並在暫存表末列下方寫入連結
+    var lastRow = Math.max(filteredData.length, 1);
+    tempSheet.getRange(lastRow + 2, 1).setValue('下載連結（請從試算表選單執行以取得對話框）');
+    tempSheet.getRange(lastRow + 3, 1).setFormula('=HYPERLINK("' + downloadUrl + '","點此下載 Excel")');
+    Logger.log('匯出完成。下載連結: ' + downloadUrl);
+  }
 }
 

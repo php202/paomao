@@ -1,5 +1,5 @@
 /**
- * 請款表單內容 - Debug / Test 入口
+ * 請款表單內容 - Debug / Test 入口（本專案已改為 Core API 客戶端，不依賴 Core 程式庫）
  * 執行方式：clasp run runDebugTest 或在編輯器選 runDebugTest 執行
  */
 function runDebugTest() {
@@ -7,8 +7,8 @@ function runDebugTest() {
   const results = { project: projectName, checks: [], ok: true };
 
   try {
-    // === Core 程式庫：驗證是否有拉到 ===
-    const coreFns = ['getCoreConfig', 'getLineSayDouInfoMap', 'getStoresInfo', 'jsonResponse', 'getBankInfoMap', 'getBearerTokenFromSheet', 'sendLineReply', 'sendLineReplyObj', 'findAvailableSlots'];
+    // === Core API 客戶端（CoreApiClient.js）===
+    const coreFns = ['getCoreConfig', 'getBankInfoMap', 'getTransferDate', 'cleanupTempSheets'];
     if (typeof Core !== 'undefined') {
       coreFns.forEach(function (fn) {
         const ok = typeof Core[fn] === 'function';
@@ -16,42 +16,33 @@ function runDebugTest() {
         if (!ok) results.ok = false;
       });
       if (typeof Core.getCoreConfig === 'function') {
-        const config = Core.getCoreConfig();
-        results.checks.push({ name: 'Core.getCoreConfig 回傳鍵', keys: config ? Object.keys(config) : [], ok: config ? Object.keys(config).length > 0 : false });
+        try {
+          const config = Core.getCoreConfig();
+          results.checks.push({ name: 'Core.getCoreConfig 回傳鍵', keys: config ? Object.keys(config) : [], ok: config && config.EXTERNAL_SS_ID });
+        } catch (e) {
+          results.checks.push({ name: 'Core.getCoreConfig', ok: false, error: e.message });
+          results.ok = false;
+        }
       }
     } else {
-      results.checks.push({ name: 'Core', note: 'Core 程式庫未載入', ok: false });
+      results.checks.push({ name: 'Core', note: 'Core API 客戶端未載入（請確認 CoreApiClient.js）', ok: false });
       results.ok = false;
     }
 
-    if (typeof doPost === 'function') {
-      results.checks.push({ name: 'doPost', ok: true });
-    }
-    if (typeof doGet === 'function') {
-      results.checks.push({ name: 'doGet', ok: true });
-    }
-    // 不測試 handleLineWebhook / createBooking，避免實際發送 LINE 或建立 SayDou 預約影響客戶
-    if (typeof getSlots === 'function') {
-      results.checks.push({ name: 'getSlots', ok: true });
-    }
-    if (typeof totalMoney === 'function') {
-      results.checks.push({ name: 'totalMoney', ok: true });
-    }
-    if (typeof getList === 'function') {
-      results.checks.push({ name: 'getList', ok: true });
-    }
-    if (typeof checkMember === 'function') {
-      results.checks.push({ name: 'checkMember', ok: true });
-    }
-    if (typeof handleDelete === 'function') {
-      results.checks.push({ name: 'handleDelete', ok: true });
-    }
-    if (typeof getStoreConfig === 'function') {
-      results.checks.push({ name: 'getStoreConfig', ok: true });
-    }
-    if (typeof findStoreConfig === 'function') {
-      results.checks.push({ name: 'findStoreConfig', ok: true });
-    }
+    // 指令碼屬性（開發票與 getBankInfoMap 需 Core API）
+    const p = PropertiesService.getScriptProperties();
+    const hasUrl = (p.getProperty('PAO_CAT_CORE_API_URL') || '').trim().length > 0;
+    const hasKey = (p.getProperty('PAO_CAT_SECRET_KEY') || '').trim().length > 0;
+    results.checks.push({ name: 'PAO_CAT_CORE_API_URL 已設定', ok: hasUrl });
+    results.checks.push({ name: 'PAO_CAT_SECRET_KEY 已設定', ok: hasKey });
+    if (!hasUrl || !hasKey) results.ok = false;
+
+    if (typeof getCoreApiParams === 'function') results.checks.push({ name: 'getCoreApiParams', ok: true });
+    if (typeof fetchOdooInvoiceFromCoreApi === 'function') results.checks.push({ name: 'fetchOdooInvoiceFromCoreApi', ok: true });
+    if (typeof issueInvoiceViaCoreApi === 'function') results.checks.push({ name: 'issueInvoiceViaCoreApi', ok: true });
+    if (typeof issueInvoice === 'function') results.checks.push({ name: 'issueInvoice', ok: true });
+    if (typeof main === 'function') results.checks.push({ name: 'main', ok: true });
+    if (typeof cleanupTempSheets === 'function') results.checks.push({ name: 'cleanupTempSheets', ok: true });
   } catch (e) {
     results.checks.push({ name: 'runDebugTest', error: e.message, ok: false });
     results.ok = false;
