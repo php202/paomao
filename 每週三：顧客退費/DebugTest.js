@@ -7,44 +7,22 @@ function runDebugTest() {
   const results = { project: projectName, checks: [], ok: true };
 
   try {
-    // === Core 程式庫：驗證是否有拉到 ===
-    const coreFns = ['getCoreConfig', 'getLineSayDouInfoMap', 'getStoresInfo', 'jsonResponse', 'getBankInfoMap', 'getBearerTokenFromSheet', 'sendLineReply', 'sendLineReplyObj', 'getUserDisplayName'];
-    if (typeof Core !== 'undefined') {
-      coreFns.forEach(function (fn) {
-        const ok = typeof Core[fn] === 'function';
-        results.checks.push({ name: 'Core.' + fn, ok: ok });
-        if (!ok) results.ok = false;
-      });
-      if (typeof Core.getCoreConfig === 'function') {
-        const config = Core.getCoreConfig();
-        results.checks.push({ name: 'Core.getCoreConfig 回傳鍵', keys: config ? Object.keys(config) : [], ok: config ? Object.keys(config).length > 0 : false });
-      }
+    // === Core API 設定（本專案已改為使用 Core API，不再使用 Core 程式庫）===
+    if (typeof getCoreApiParams === 'function') {
+      const params = getCoreApiParams();
+      results.checks.push({ name: 'PAO_CAT_CORE_API_URL 已設定', ok: (params.url || '').length > 0 });
+      results.checks.push({ name: 'PAO_CAT_SECRET_KEY 已設定', ok: (params.key || '').length > 0 });
+      results.checks.push({ name: 'useApi 可用', ok: params.useApi === true });
     } else {
-      results.checks.push({ name: 'Core', note: 'Core 程式庫未載入', ok: false });
+      results.checks.push({ name: 'getCoreApiParams', ok: false });
       results.ok = false;
     }
 
-    if (typeof runReservationReport === 'function') {
-      results.checks.push({ name: 'runReservationReport', ok: true });
-    }
-    if (typeof storeData === 'function') {
-      results.checks.push({ name: 'storeData', ok: true });
-    }
-    if (typeof dailyCheckAndPush === 'function') {
-      results.checks.push({ name: 'dailyCheckAndPush', ok: true });
-    }
-    if (typeof onOpen === 'function') {
-      results.checks.push({ name: 'onOpen', ok: true });
-    }
-    if (typeof doPost === 'function') {
-      results.checks.push({ name: 'doPost', ok: true });
-    }
-    if (typeof compareSalesData === 'function') {
-      results.checks.push({ name: 'compareSalesData', ok: true });
-    }
-    if (typeof gogoshopStocksReport === 'function') {
-      results.checks.push({ name: 'gogoshopStocksReport', ok: true });
-    }
+    if (typeof onOpen === 'function') results.checks.push({ name: 'onOpen', ok: true });
+    if (typeof refund === 'function') results.checks.push({ name: 'refund', ok: true });
+    if (typeof getPhonesFromSheet === 'function') results.checks.push({ name: 'getPhonesFromSheet', ok: true });
+    if (typeof exportToExcelWithFilter === 'function') results.checks.push({ name: 'exportToExcelWithFilter', ok: true });
+    if (typeof cleanupTempSheets === 'function') results.checks.push({ name: 'cleanupTempSheets', ok: true });
   } catch (e) {
     results.checks.push({ name: 'runDebugTest', error: e.message, ok: false });
     results.ok = false;

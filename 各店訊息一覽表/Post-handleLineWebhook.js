@@ -105,7 +105,7 @@ function handleLineWebhook(data) {
     var logSheet = ss.getSheetByName("訊息一覽");
     if (!logSheet) {
       logSheet = ss.insertSheet("訊息一覽");
-      logSheet.appendRow(["時間", "id", "店家", "名字", "訊息", "狀態", "處理人員", "手機"]);
+      logSheet.appendRow(["時間", "id", "店家", "名字", "訊息", "狀態", "處理人員", "手機", "replyToken"]);
     }
 
     var events = data.events;
@@ -161,7 +161,8 @@ function handleLineWebhook(data) {
       var statusCol = "";
       var handlerCol = "";
       var phoneCol = extractedPhone || "";
-      logSheet.appendRow([timestamp, userId, finalStoreName, finalUserName, msg, statusCol, handlerCol, phoneCol]);
+      var replyTokenStr = (replyToken && typeof replyToken === "string") ? replyToken : "";
+      logSheet.appendRow([timestamp, userId, finalStoreName, finalUserName, msg, statusCol, handlerCol, phoneCol, replyTokenStr]);
       if (extractedPhone && typeof syncLineUserIdForPhoneToCustomerState === "function") {
         try { syncLineUserIdForPhoneToCustomerState(extractedPhone, userId); } catch (syncErr) {
           appendErrorLog("syncLineUserIdForPhoneToCustomerState: " + (syncErr && syncErr.message), "handleLineWebhook");

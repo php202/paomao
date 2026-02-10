@@ -65,6 +65,8 @@ function doGet(e) {
         return getList(e); // 呼叫 Services.gs 裡的函式
       case 'delete':
         return handleDelete(e); // 呼叫 Services.gs 裡的函式
+      case 'replyMessage':
+        return replyMessage(e);
       case 'getSlots':
         return getSlots(e);
       case 'checkMember':

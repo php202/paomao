@@ -48,6 +48,12 @@
     .msg-name:hover { color: #004499; border-bottom: 1px solid #004499; background-color: #e6f7ff; }
     .btn-copy-name { background: none; border: none; cursor: pointer; font-size: 14px; opacity: 0.5; }
     .msg-content { font-size: 14px; color: #333; word-break: break-all; margin-top: 5px; }
+    .msg-reply-row { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+    .msg-reply-input { flex: 1; padding: 4px 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    .msg-reply-input:disabled { background: #f0f0f0; color: #999; }
+    .btn-reply-msg { padding: 4px 10px; font-size: 12px; background: #00B900; color: #fff; border: 1px solid #00B900; border-radius: 4px; cursor: pointer; flex-shrink: 0; }
+    .btn-reply-msg:hover:not(:disabled) { background: #009900; }
+    .btn-reply-msg:disabled { background: #ccc; border-color: #ccc; cursor: not-allowed; }
     .btn-done { position: absolute; top: 5px; right: 5px; background: #fff; border: 1px solid #ccc; cursor: pointer; border-radius: 4px; padding: 2px 8px; font-size: 12px; }
     .btn-waitlist { margin-left: 4px; padding: 2px 8px; font-size: 12px; background: #c4b5fd; color: #5b21b6; border: 1px solid #a78bfa; border-radius: 4px; cursor: pointer; }
     .waitlist-item { border: 1px solid #c4b5fd; padding: 8px; margin-bottom: 6px; border-radius: 5px; background: #fff; font-size: 13px; }

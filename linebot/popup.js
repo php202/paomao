@@ -166,7 +166,9 @@ async function fetchMsgList(botId) {
       const div = document.createElement('div');
       div.className = 'msg-item';
       div.setAttribute('data-search', (item.name + item.msg).toLowerCase());
-      
+      const hasReplyToken = !!(item.replyToken && item.replyToken.trim());
+      const replyTokenEsc = (item.replyToken || '').replace(/"/g, '&quot;');
+      const replyPlaceholder = hasReplyToken ? '回覆此則（不佔 Push）' : '回覆此則（無 token 時請改用手動傳送）';
       div.innerHTML = `
         <div class="msg-header">
           <span>${item.time}</span>
@@ -175,6 +177,10 @@ async function fetchMsgList(botId) {
           <button class="btn-copy-name" title="用此名字篩選訊息">🔍</button>
         </div>
         <div class="msg-content">${item.msg}</div>
+        <div class="msg-reply-row">
+          <input type="text" class="msg-reply-input" placeholder="${replyPlaceholder}" data-reply-token="${replyTokenEsc}">
+          <button type="button" class="btn-reply-msg" data-reply-token="${replyTokenEsc}">回覆</button>
+        </div>
         <button class="btn-done" data-row="${item.row}">✔ 完成</button>
         <button class="btn-waitlist" data-user-id="${item.userId || ''}" data-name="${(item.name || '').replace(/"/g, '&quot;')}">排候補</button>
       `;
@@ -235,6 +241,50 @@ async function fetchMsgList(botId) {
           var name = (btnWaitlist.getAttribute('data-name') || '').replace(/&quot;/g, '"');
           if (!userId) { alert('此則訊息無 userId'); return; }
           openWaitlistModal(userId, name);
+        });
+      }
+
+      var replyInput = div.querySelector('.msg-reply-input');
+      var btnReply = div.querySelector('.btn-reply-msg');
+      if (btnReply && replyInput && botId) {
+        btnReply.addEventListener('click', async () => {
+          var text = (replyInput.value || '').trim();
+          if (!text) { alert('請輸入回覆內容'); replyInput.focus(); return; }
+          var rt = (replyInput.getAttribute('data-reply-token') || '').replace(/&quot;/g, '"');
+          btnReply.disabled = true;
+          btnReply.textContent = '送出中...';
+          try {
+            var url = GAS_API_URL + '?action=replyMessage&botId=' + encodeURIComponent(botId) + '&replyToken=' + encodeURIComponent(rt) + '&text=' + encodeURIComponent(text);
+            var resp = await fetch(url);
+            var data = await resp.json();
+            if (data.status === 'success') {
+              replyInput.value = '';
+              replyInput.disabled = true;
+              btnReply.disabled = true;
+              var operatorName = getOperatorName();
+              var row = div.querySelector('.btn-done') ? div.querySelector('.btn-done').getAttribute('data-row') : '';
+              if (row && operatorName) {
+                try {
+                  await fetch(GAS_API_URL + '?action=delete&row=' + encodeURIComponent(row) + '&operator_name=' + encodeURIComponent(operatorName));
+                  div.remove();
+                  var remaining = listDiv.querySelectorAll('.msg-item').length;
+                  updateMsgStatus(remaining);
+                  if (remaining === 0) listDiv.innerHTML = '<div style="text-align:center;color:#999;margin-top:20px;">全部處理完畢！</div>';
+                } catch (delErr) {}
+              }
+              btnReply.textContent = '已回覆';
+              btnReply.style.color = '#00B900';
+            } else {
+              var errMsg = data.message || '回覆失敗';
+              alert(errMsg + '\n\n若為 token 已過期，請改用手動傳送（在 LINE 後台直接回覆或使用 Push）。');
+              btnReply.disabled = false;
+              btnReply.textContent = '回覆';
+            }
+          } catch (err) {
+            alert('連線失敗');
+            btnReply.disabled = false;
+            btnReply.textContent = '回覆';
+          }
         });
       }
     });

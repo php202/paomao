@@ -12,7 +12,7 @@ function exportToExcelWithFilter() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sourceSheetName = '表單回應 2'; // 您的工作表名稱
   const sourceSheet = ss.getSheetByName(sourceSheetName);
-  const TODAY_YMD = Core.getTransferDate(new Date())
+  const TODAY_YMD = getTransferDate(new Date());
 
   if (!sourceSheet) {
     SpreadsheetApp.getUi().alert(`找不到名為 ${sourceSheetName} 的工作表。`);

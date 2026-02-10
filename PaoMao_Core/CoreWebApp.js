@@ -23,6 +23,7 @@
  * 【doPost】body JSON：{ key, action[, ...] }
  * - action=lineReply：replyToken, text, token（必填），代為呼叫 LINE Reply API
  * - action=getCustomerAIResult：phone（必填），從「客人消費狀態」試算表依手機回傳 AI分析結果（K 欄）
+ * - action=executeRefundByPhone：phone（必填），依手機號碼執行儲值金退費
  * - action=issueInvoice：storeInfo, odooNumber, buyType, items（必填），代為開立 B2B 發票，回傳 Giveme 結果
  *
  * ⚠️ 若呼叫端出現「未知 action」→ 請在「PaoMao_Core」專案重新部署 Web App（部署 → 管理部署 → 編輯 → 版本：新版本 → 部署）。
@@ -111,6 +112,8 @@ function handleRequest(params, method) {
         return jsonOut({ status: "ok", data: debugLineStoreMap() });
       case "getUserDisplayName":
         return actionGetUserDisplayName(params);
+      case "executeRefundByPhone":
+        return actionExecuteRefundByPhone(params);
       default:
         return jsonOut({ status: "error", message: "未知 action: " + action });
     }
@@ -382,6 +385,36 @@ function actionGetUserDisplayName(params) {
   }
   var displayName = getUserDisplayName(userId, groupId, roomId, token);
   return jsonOut({ status: "ok", displayName: displayName });
+}
+
+/**
+ * Core API：依手機號碼執行退費（儲值金退還）。
+ * 參數：phone（必填）
+ * 回傳：{ status, success, msg, amount? }
+ */
+function actionExecuteRefundByPhone(params) {
+  var phone = (params.phone != null) ? String(params.phone).trim() : "";
+  if (!phone) {
+    return jsonOut({ status: "error", message: "請提供 phone 參數" });
+  }
+  if (typeof executeRefundByPhone !== "function") {
+    return jsonOut({ status: "error", message: "executeRefundByPhone 未定義（請確認 SayDou.js 已加入專案）" });
+  }
+  try {
+    var result = executeRefundByPhone(phone);
+    return jsonOut({
+      status: result.success ? "ok" : "error",
+      success: result.success,
+      msg: result.msg || "",
+      amount: result.amount
+    });
+  } catch (err) {
+    return jsonOut({
+      status: "error",
+      success: false,
+      message: (err && err.message) ? err.message : String(err)
+    });
+  }
 }
 
 /**

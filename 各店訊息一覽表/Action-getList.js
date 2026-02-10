@@ -56,6 +56,7 @@ function getList(e) {
         name: row[3],
         msg: row[4],
         userId: row[1],
+        replyToken: (row.length > 8 && row[8]) ? String(row[8]).trim() : "",
       });
     }
   }
