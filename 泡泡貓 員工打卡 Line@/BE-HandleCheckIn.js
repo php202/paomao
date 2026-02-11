@@ -107,7 +107,10 @@ function handleCheckInAPI(jsonData) {
          return responseJSON({ status: "failed", text: `⚠️ 你已於 10分鐘內打卡，請稍後再試！` });
       }
 
-      if (history.lastType === "上班打卡") {
+      // 上一筆是上班還是下班？含補打卡：上班打卡(補)、下班打卡(補) 也要正確辨識
+      const lastTypeStr = String(history.lastType || "").trim();
+      const lastWasClockIn = lastTypeStr.indexOf("上班") !== -1;
+      if (lastWasClockIn) {
         punchType = "下班打卡";
       } else {
         punchType = "上班打卡";

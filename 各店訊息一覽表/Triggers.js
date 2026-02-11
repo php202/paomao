@@ -29,10 +29,7 @@ var TRIGGERS_CONFIG = {
   CLEANUP_MINUTE: 0,
   /** 候補清單今日自動 Push：22:00（預約日=今天且仍 pending 則自動傳提醒，狀態改為 auto_pushed） */
   WAITLIST_AUTO_PUSH_HOUR: 22,
-  WAITLIST_AUTO_PUSH_MINUTE: 0,
-  /** 回訪提醒掃街：每日 10:00（掃客人消費狀態表，到期且無預約則發 Push） */
-  REVISIT_REMINDER_HOUR: 10,
-  REVISIT_REMINDER_MINUTE: 0
+  WAITLIST_AUTO_PUSH_MINUTE: 0
 };
 
 /** 要由本腳本建立／管理的觸發對應函式（用於刪除重複） */
@@ -44,8 +41,7 @@ var MANAGED_TRIGGER_HANDLERS = [
   "runMonthlySalesReportAndPush",
   "checkTimeoutPending",
   "cleanupRetentionList",
-  "runWaitlistAutoPush",
-  "scanAndSendRevisitReminders"
+  "runWaitlistAutoPush"
 ];
 
 /**
@@ -165,16 +161,7 @@ function setupAllTriggers() {
     .inTimezone(c.TZ)
     .create();
 
-  // 每日 10:00：回訪提醒掃街（掃客人消費狀態表，到期且無預約則發 Push 提醒回訪）
-  ScriptApp.newTrigger("scanAndSendRevisitReminders")
-    .timeBased()
-    .everyDays(1)
-    .atHour(c.REVISIT_REMINDER_HOUR)
-    .nearMinute(c.REVISIT_REMINDER_MINUTE)
-    .inTimezone(c.TZ)
-    .create();
-
-  Logger.log("已建立 4 個排程觸發（每 " + pendingMins + " 分鐘 Pending 巡航、每日 " + c.CLEANUP_HOUR + ":00 準客挽留清理、每日 " + c.WAITLIST_AUTO_PUSH_HOUR + ":00 候補自動 Push、每日 " + c.REVISIT_REMINDER_HOUR + ":00 回訪提醒）。每日 21:00/22:00/8:00/8:30 與每月 1 號 8:00 已暫時註解，驗證後取消註解並重新執行 setupAllTriggers 即可恢復。");
+  Logger.log("已建立 3 個排程觸發（每 " + pendingMins + " 分鐘 Pending 巡航、每日 " + c.CLEANUP_HOUR + ":00 準客挽留清理、每日 " + c.WAITLIST_AUTO_PUSH_HOUR + ":00 候補自動 Push）。每日 21:00/22:00/8:00/8:30 與每月 1 號 8:00 已暫時註解，驗證後取消註解並重新執行 setupAllTriggers 即可恢復。");
   Logger.log("請到 編輯 → 目前專案的觸發條件 確認。表單送出觸發（onFormSubmit_Survey）需在「表單回應的試算表」專案內手動加一次。");
   return listMyTriggers();
 }
