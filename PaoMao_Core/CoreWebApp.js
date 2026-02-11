@@ -38,6 +38,9 @@ function doGet(e) {
   if (action === "near") {
     return actionNearRedirect(params);
   }
+  if (action === "nearRecord") {
+    return actionNearRecord(params);
+  }
   if (action === "consumeReportToken") {
     return actionConsumeReportToken(params);
   }
@@ -662,15 +665,9 @@ function actionGetReportByDate(params) {
 }
 
 /**
- * 網紅專屬連結追蹤：
+ * 網紅專屬連結追蹤（入口）：
+ * - 不在此處累加，改回傳中間頁；由前端用 sessionStorage 判斷「同分頁只計數一次」，再呼叫 nearRecord 累加並導向。
  * - URL 範例：<Core Web App URL>?action=near&code=123
- * - 讀取 NEAR_TRACKING_SS_ID / NEAR_TRACKING_SHEET_NAME 指定的試算表與工作表
- * - 欄位：
- *   A: code
- *   B: influencerName
- *   C: targetUrl
- *   D: clickCount
- *   E: lastClickAt
  */
 function actionNearRedirect(params) {
   var code = (params.code != null) ? String(params.code).trim() : "";
@@ -681,59 +678,83 @@ function actionNearRedirect(params) {
   var ssId = (typeof NEAR_TRACKING_SS_ID !== "undefined") ? NEAR_TRACKING_SS_ID : "";
   var sheetName = (typeof NEAR_TRACKING_SHEET_NAME !== "undefined") ? NEAR_TRACKING_SHEET_NAME : "NearTracking";
   if (!ssId) {
-    // 尚未設定追蹤用試算表，直接導回首頁
     return redirectTo_("https://www.paopaomao.tw");
   }
 
-  var lock = LockService.getScriptLock();
   try {
-    lock.tryLock(5000); // 最多等 5 秒，避免多連點寫入衝突
-
     var ss = SpreadsheetApp.openById(ssId);
     var sheet = ss.getSheetByName(sheetName);
-    if (!sheet) {
-      return redirectTo_("https://www.paopaomao.tw");
-    }
+    if (!sheet) return redirectTo_("https://www.paopaomao.tw");
 
     var lastRow = sheet.getLastRow();
-    if (lastRow < 2) {
-      return redirectTo_("https://www.paopaomao.tw");
-    }
+    if (lastRow < 2) return redirectTo_("https://www.paopaomao.tw");
 
-    var range = sheet.getRange(2, 1, lastRow - 1, 5); // A:E
-    var values = range.getValues();
-
-    var targetUrl = "";
-    var found = false;
-    for (var i = 0; i < values.length; i++) {
-      var rowCode = (values[i][0] != null) ? String(values[i][0]).trim() : "";
+    var data = sheet.getRange(2, 1, lastRow, 5).getValues(); // A:E，含最後一列
+    var targetUrl = "https://www.paopaomao.tw";
+    for (var i = 0; i < data.length; i++) {
+      var rowCode = (data[i][0] != null) ? String(data[i][0]).trim() : "";
       if (rowCode === code) {
-        found = true;
-        targetUrl = (values[i][2] != null) ? String(values[i][2]).trim() : "";
-        var current = Number(values[i][3] || 0);
-        if (isNaN(current)) current = 0;
-        values[i][3] = current + 1; // D: clickCount
-        values[i][4] = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss"); // E: lastClickAt
+        var u = (data[i][2] != null) ? String(data[i][2]).trim() : "";
+        if (u) targetUrl = u;
         break;
       }
     }
 
-    if (found) {
-      range.setValues(values);
-      if (targetUrl) {
-        return redirectTo_(targetUrl);
-      }
-    }
-
-    // 找不到 code 或沒有 targetUrl，就導回預設頁
-    return redirectTo_("https://www.paopaomao.tw");
+    var baseUrl = (typeof ScriptApp !== "undefined" && ScriptApp.getService()) ? ScriptApp.getService().getUrl() : "";
+    var html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>Redirecting...</body><script>\n" +
+      "(function(){ var c=" + JSON.stringify(code) + "; var u=" + JSON.stringify(targetUrl) + "; var b=" + JSON.stringify(baseUrl) + ";\n" +
+      "if(sessionStorage.getItem('near_'+c)){ window.location.href=u; return; }\n" +
+      "var x=new XMLHttpRequest(); x.open('GET', b+(b.indexOf('?')>=0?'&':'?')+'action=nearRecord&code='+encodeURIComponent(c), true);\n" +
+      "x.onload=function(){ try{sessionStorage.setItem('near_'+c,'1');}catch(e){} window.location.href=u; };\n" +
+      "x.onerror=function(){ window.location.href=u; };\n" +
+      "x.send(); })();\n</script></html>";
+    return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   } catch (e) {
     return redirectTo_("https://www.paopaomao.tw");
-  } finally {
-    try {
-      lock.releaseLock();
-    } catch (e2) {}
   }
+}
+
+/**
+ * 網紅連結「只做累加」；由 near 的中間頁在「同分頁第一次」時呼叫，避免重整一直 +1。
+ * 不需 key，公開呼叫。
+ */
+function actionNearRecord(params) {
+  var code = (params.code != null) ? String(params.code).trim() : "";
+  if (!code) return ContentService.createTextOutput("").setMimeType(ContentService.MimeType.TEXT);
+
+  var ssId = (typeof NEAR_TRACKING_SS_ID !== "undefined") ? NEAR_TRACKING_SS_ID : "";
+  var sheetName = (typeof NEAR_TRACKING_SHEET_NAME !== "undefined") ? NEAR_TRACKING_SHEET_NAME : "NearTracking";
+  if (!ssId) return ContentService.createTextOutput("").setMimeType(ContentService.MimeType.TEXT);
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.tryLock(5000);
+
+    var ss = SpreadsheetApp.openById(ssId);
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return ContentService.createTextOutput("").setMimeType(ContentService.MimeType.TEXT);
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return ContentService.createTextOutput("").setMimeType(ContentService.MimeType.TEXT);
+
+    var range = sheet.getRange(2, 1, lastRow, 5);
+    var values = range.getValues();
+    for (var i = 0; i < values.length; i++) {
+      var rowCode = (values[i][0] != null) ? String(values[i][0]).trim() : "";
+      if (rowCode === code) {
+        var current = Number(values[i][3] || 0);
+        if (isNaN(current)) current = 0;
+        values[i][3] = current + 1;
+        values[i][4] = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss");
+        range.setValues(values);
+        break;
+      }
+    }
+  } catch (e) {}
+  finally {
+    try { lock.releaseLock(); } catch (e2) {}
+  }
+  return ContentService.createTextOutput("").setMimeType(ContentService.MimeType.TEXT);
 }
 
 /**
