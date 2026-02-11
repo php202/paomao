@@ -47,11 +47,21 @@
   .bubble-cat-wrapper button { margin-top: 0.5rem; padding: 0.5rem 1rem; background: #2196f3; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
   .bubble-cat-wrapper button:disabled { background: #ccc; cursor: not-allowed; }
   .bubble-cat-wrapper .small { font-size: 0.9rem; color: #666; }
+  .bubble-cat-wrapper #manager-date-bar { margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .bubble-cat-wrapper #manager-date-bar label { font-weight: 600; }
+  .bubble-cat-wrapper #manager-date-bar input[type="date"] { padding: 0.35rem 0.5rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; }
+  .bubble-cat-wrapper #manager-date-bar button { padding: 0.35rem 0.75rem; background: #2196f3; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
+  .bubble-cat-wrapper #manager-date-bar button:hover { background: #1976d2; }
 </style>
 
 <div class="bubble-cat-wrapper">
   <div class="bubble-cat-card">
     <h2>泡泡日報</h2>
+    <div id="manager-date-bar" style="display:none;">
+      <label for="report-date">選擇日期：</label>
+      <input type="date" id="report-date" />
+      <button type="button" id="report-date-btn">查詢</button>
+    </div>
     <div id="status" class="state loading">
       正在載入…（60s）
       <div class="loading-bar"><div id="loading-bar-inner"></div></div>
@@ -218,6 +228,17 @@
       );
     }
 
+    function buildSingleDayHtml(data, dateStr, top5, isManager, canShare, shareSessionId) {
+      var dateText = dateStr ? String(dateStr).slice(0, 10) : "";
+      var html = '<div class="section"><h3>' + (isManager ? "日報" : "今日日報") + '</h3></div>';
+      html += (data && data.stores || []).map(function (s) { return renderStoreBlock(s, dateText, data.globalAvgTicket); }).join("");
+      html += renderGlobalAvg(data ? data.globalAvgTicket : null);
+      html += renderTopCourses(data ? data.topCourses : null);
+      html += renderTopAvgTicket(top5);
+      if (canShare && shareSessionId) html += renderShareForm(shareSessionId);
+      return html;
+    }
+
     function bindShare(sessionId) {
       var btn = document.getElementById("share-btn");
       var textarea = document.getElementById("share-content");
@@ -278,8 +299,8 @@
         var content = document.getElementById("content");
         if (!content) return;
         var html = "";
-        if (json.role === "manager") {
-          var daily = (json.data && json.data.daily) ? json.data.daily : [];
+        var daily = (json.data && json.data.daily) ? json.data.daily : [];
+        if (daily.length > 0) {
           html += '<div class="section"><h3>當月日報清單</h3></div>';
           daily.forEach(function (d) {
             var dateText = (d.dateStr && String(d.dateStr).indexOf("GMT") >= 0) ? new Date(d.dateStr).toISOString().slice(0, 10) : (d.dateStr || "");
@@ -290,18 +311,41 @@
             html += '</div>';
           });
         } else {
-          html += '<div class="section"><h3>今日日報</h3></div>';
-          var dateText = json.data && json.data.dateStr ? String(json.data.dateStr) : "";
-          (json.data && json.data.stores || []).forEach(function (s) { html += renderStoreBlock(s, dateText, json.data.globalAvgTicket); });
-          html += renderGlobalAvg(json.data ? json.data.globalAvgTicket : null);
-          html += renderTopCourses(json.data ? json.data.topCourses : null);
-          html += renderTopAvgTicket(json.topAvgTicketEmployees);
-          if (json.canShare && json.shareSessionId) {
-            html += renderShareForm(json.shareSessionId);
-          }
+          html = buildSingleDayHtml(json.data, json.dateStr, json.topAvgTicketEmployees || [], json.role === "manager", json.canShare, json.shareSessionId);
         }
         content.innerHTML = html;
         if (json.canShare && json.shareSessionId) bindShare(json.shareSessionId);
+        if (json.role === "manager" && json.reportSessionId) {
+          var dateBar = document.getElementById("manager-date-bar");
+          var dateInput = document.getElementById("report-date");
+          var dateBtn = document.getElementById("report-date-btn");
+          if (dateBar && dateInput && dateBtn) {
+            dateBar.style.display = "flex";
+            dateInput.value = (json.dateStr || "").slice(0, 10);
+            var sessionId = json.reportSessionId;
+            var gasBase = GAS_BASE_URL;
+            function loadDate() {
+              var dateStr = dateInput.value;
+              if (!dateStr) return;
+              content.innerHTML = '<div class="section">載入中…</div>';
+              var url = gasBase + (gasBase.indexOf("?") >= 0 ? "&" : "?") + "action=getReportByDate&sessionId=" + encodeURIComponent(sessionId) + "&date=" + encodeURIComponent(dateStr);
+              fetch(url, { method: "GET", redirect: "follow" })
+                .then(function (res) { return res.json(); })
+                .then(function (res) {
+                  if (!res || res.status !== "ok") {
+                    content.innerHTML = '<div class="section state error">' + ((res && res.message) ? res.message : "載入失敗") + "</div>";
+                    return;
+                  }
+                  content.innerHTML = buildSingleDayHtml(res.data, res.dateStr, res.topAvgTicketEmployees || [], true, false, "");
+                })
+                .catch(function () {
+                  content.innerHTML = '<div class="section state error">連線失敗，請稍後再試。</div>';
+                });
+            }
+            dateBtn.addEventListener("click", loadDate);
+            dateInput.addEventListener("change", loadDate);
+          }
+        }
       })
       .catch(function () {
         showError("連線失敗，請稍後再試。");

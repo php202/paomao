@@ -41,6 +41,9 @@ function doGet(e) {
   if (action === "submitReportShare") {
     return actionSubmitReportShare(params);
   }
+  if (action === "getReportByDate") {
+    return actionGetReportByDate(params);
+  }
   return handleRequest(params, "GET");
 }
 
@@ -544,22 +547,13 @@ function actionConsumeReportToken(params) {
   var storeIds = payload.storeIds || [];
   var dateStr = payload.dateStr;
   var result;
-  if (role === "manager") {
-    result = buildMonthlyDailyReportPayload(null, null, storeIds);
-    if (result && (!result.daily || result.daily.length === 0) && typeof syncDailyReportTransactions === "function") {
-      try {
-        syncDailyReportTransactions(dateStr);
-        result = buildMonthlyDailyReportPayload(null, null, storeIds);
-      } catch (eSync) {}
-    }
-  } else {
-    result = buildDailyReportPayload(dateStr, storeIds);
-    if (result && (!result.stores || result.stores.length === 0) && typeof syncDailyReportTransactions === "function") {
-      try {
-        syncDailyReportTransactions(dateStr);
-        result = buildDailyReportPayload(dateStr, storeIds);
-      } catch (eSync) {}
-    }
+  // 管理者也改為只出單日（當天），避免當月整份資料跑太久
+  result = buildDailyReportPayload(dateStr, storeIds);
+  if (result && (!result.stores || result.stores.length === 0) && typeof syncDailyReportTransactions === "function") {
+    try {
+      syncDailyReportTransactions(dateStr);
+      result = buildDailyReportPayload(dateStr, storeIds);
+    } catch (eSync) {}
   }
 
   var top5 = buildDailyReportPayload(dateStr, null).topAvgTicketEmployees || [];
@@ -618,7 +612,7 @@ function actionConsumeReportToken(params) {
     }
   } catch (eLog) {}
 
-  return jsonOut({
+  var out = {
     status: "ok",
     role: role,
     dateStr: dateStr,
@@ -626,6 +620,41 @@ function actionConsumeReportToken(params) {
     topAvgTicketEmployees: top5,
     canShare: canShare,
     shareSessionId: shareSessionId
+  };
+  if (role === "manager") {
+    var reportSessionId = Utilities.getUuid().replace(/-/g, "");
+    cache.put("report_session_" + reportSessionId, JSON.stringify({ storeIds: storeIds, createdAt: Date.now() }), 600);
+    out.reportSessionId = reportSessionId;
+  }
+  return jsonOut(out);
+}
+
+/**
+ * 管理者切換日期：依 sessionId + date 回傳該日報表資料（不需 key，session 有效 10 分鐘）
+ */
+function actionGetReportByDate(params) {
+  var sessionId = (params.sessionId != null) ? String(params.sessionId).trim() : "";
+  var dateStr = (params.date != null) ? String(params.date).trim() : "";
+  if (!sessionId) return jsonOut({ status: "error", message: "缺少 sessionId" });
+  if (!dateStr) return jsonOut({ status: "error", message: "缺少 date" });
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get("report_session_" + sessionId);
+  if (!raw) return jsonOut({ status: "error", message: "連結已失效或逾時，請重新從 LINE 開啟日報。" });
+  var session;
+  try {
+    session = JSON.parse(raw);
+  } catch (e) {
+    return jsonOut({ status: "error", message: "session 格式錯誤" });
+  }
+  var storeIds = session.storeIds || [];
+  if (storeIds.length === 0) return jsonOut({ status: "error", message: "無門市資料" });
+  var result = buildDailyReportPayload(dateStr, storeIds);
+  var top5 = buildDailyReportPayload(dateStr, null).topAvgTicketEmployees || [];
+  return jsonOut({
+    status: "ok",
+    dateStr: dateStr,
+    data: result,
+    topAvgTicketEmployees: top5
   });
 }
 

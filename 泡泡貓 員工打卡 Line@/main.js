@@ -607,29 +607,12 @@ function routeMessageEvent(event) {
           reply(replyToken, "此功能暫時關閉，敬請見諒。");
           return;
         }
-        // 新邏輯：管理者可以看自己管理的所有門市；一般員工可以看自己所屬門市
+        // 新邏輯：管理者可以看自己管理的所有門市；一般員工可以看自己所屬／上班店家（workStores / storeIds / stores）
         var managedStoreIds = [];
         if (auth.isAuthorized && auth.identity && auth.identity.indexOf("manager") !== -1) {
-          // 管理者：沿用原本 managedStores 設定
-          (auth.managedStores || []).forEach(function (s) {
-            String(s).split(/[,、，]/).forEach(function (id) {
-              var t = id.trim();
-              if (t) managedStoreIds.push(t);
-            });
-          });
+          managedStoreIds = collectManagedStoreIds(auth);
         } else {
-          // 一般員工：若有設定所屬店別（例如 auth.storeIds 或 auth.stores），則僅看自己店家
-          if (auth && auth.storeIds && auth.storeIds.length) {
-            (auth.storeIds || []).forEach(function (id) {
-              var t = String(id || "").trim();
-              if (t) managedStoreIds.push(t);
-            });
-          } else if (auth && auth.stores && auth.stores.length) {
-            (auth.stores || []).forEach(function (id) {
-              var t = String(id || "").trim();
-              if (t) managedStoreIds.push(t);
-            });
-          }
+          managedStoreIds = collectEmployeeStoreIds(auth);
         }
         if (managedStoreIds.length === 0) {
           reply(replyToken, "無法判斷您所屬的門市，請請管理者在「管理者清單」或員工設定中補上店家代碼。");
