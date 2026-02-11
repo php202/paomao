@@ -752,5 +752,48 @@ function getAllStorecashAddRecordByMembid(membid, pageSize) {
   return all;
 }
 
+/**
+ * 檢查 SayDou Bearer Token 是否有效；若無效或為空則發送通知（Email）。
+ * 可由時間驅動觸發排程執行（例如每日一次）。
+ * 指令碼屬性可設：PAO_CAT_ADMIN_EMAIL（通知寄送對象，多個用逗號分隔）；未設則只寫入 Logger。
+ */
+function checkSaydouTokenAndNotify() {
+  var token = getBearerTokenFromSheet();
+  var problem = null;
+  if (!token || String(token).trim() === '') {
+    problem = 'Token 為空或無法取得';
+  } else {
+    try {
+      var testUrl = 'https://saywebdatafeed.saydou.com/api/management/unearn/memberStorecash' +
+        '?page=0&limit=1&sort=stcash&order=desc&keyword=0&showGroup=0&tabIndex=0';
+      var response = UrlFetchApp.fetch(testUrl, {
+        method: 'get',
+        headers: { Authorization: 'Bearer ' + token },
+        muteHttpExceptions: true
+      });
+      var code = response.getResponseCode();
+      if (code === 401 || code === 403) {
+        problem = 'Token 無效或已過期（HTTP ' + code + '）';
+      }
+    } catch (e) {
+      problem = '驗證 Token 時發生錯誤: ' + (e && e.message);
+    }
+  }
+  if (!problem) {
+    Logger.log('checkSaydouTokenAndNotify: Token 正常');
+    return;
+  }
+  Logger.log('checkSaydouTokenAndNotify: ' + problem);
+  var props = PropertiesService.getScriptProperties();
+  var to = (props.getProperty('PAO_CAT_ADMIN_EMAIL') || '').trim();
+  if (to) {
+    try {
+      MailApp.sendEmail(to, '[泡泡貓] SayDou Token 檢查異常', 'SayDou Bearer Token 檢查結果：' + problem + '\n\n請檢查 Token 試算表或 Token Web App 設定。');
+    } catch (mailErr) {
+      Logger.log('checkSaydouTokenAndNotify 寄信失敗: ' + (mailErr && mailErr.message));
+    }
+  }
+}
+
 
 
