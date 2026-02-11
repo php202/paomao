@@ -44,11 +44,9 @@ function isUserAuthorized(userId) {
         if (row[11] != null && String(row[11]).trim() !== '') {
           result.employeeCode = String(row[11]).trim();
         }
-        if (row[2] && row[2] !== "") {
-          result.workStores.push(row[1]);
-        }
-        if (row[5] && row[5] !== "") {
-          result.idpercent = row[5];
+        // F 欄 (index 5) 為 storeId：視為員工平常上班的店家
+        if (row[5] != null && String(row[5]).trim() !== '') {
+          result.workStores.push(String(row[5]).trim());
         }
       }
     }
