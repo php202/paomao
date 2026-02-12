@@ -12,6 +12,8 @@
     .header-right #operator_name { width: 64px; padding: 2px 4px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; color: #00B900; font-weight: bold; box-sizing: border-box; }
     .btn-reload { background: none; border: 1px solid #ddd; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #666; transition: all 0.2s; flex-shrink: 0; }
     .btn-reload:hover { background: #f0f0f0; color: #00B900; transform: rotate(180deg); }
+    .btn-info { background: none; border: 1px solid #ddd; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #666; font-size: 12px; flex-shrink: 0; }
+    .btn-info:hover { background: #f0f0f0; color: #007bff; }
     
     .box-container { margin-bottom: 10px; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 5px; }
     .availability-section { background: #f0f8ff; border-color: #cceeff; }
@@ -97,6 +99,7 @@
     <div class="header-right">
       <label for="operator_name">我是：</label>
       <input type="text" id="operator_name" placeholder="名字">
+      <button id="btn-feedback" class="btn-info" title="問題回報 / 建議">i</button>
       <button id="btn-reload-page" class="btn-reload" title="重新整理">🔄</button>
     </div>
   </div>

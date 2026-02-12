@@ -12,7 +12,7 @@ const LINE_STORE_SS_ID = '1ZV_0vjtQylyEWrrB5n05fBvvQiDoexYvFuztje1Fgm0' // 訊�
 const LINE_STAFF_SS_ID = '1GH2XbihFIY0AX8SMF9Tk6igrVKPpA_vMJVlkDkJjpe4' // 泡泡貓 員工打卡 line@
 const LINE_HQ_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE' // 泡泡貓 門市資料
 /** 網紅連結追蹤：請建立一份專用試算表後，把 ID 貼到這裡 */
-const NEAR_TRACKING_SS_ID = '1809780531';
+const NEAR_TRACKING_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
 /** 追蹤用工作表名稱（建議：NearTracking） */
 const NEAR_TRACKING_SHEET_NAME = 'NearTracking';
 /** 五星好評／小費表單回應試算表（Google 表單回應） */

@@ -55,36 +55,18 @@ function debugSystemStatus() {
 // 全域設定
 // ==========================================
 const RETENTION_SHEET_NAME = "準客挽留清單"; // 統一 Sheet 名稱
-const ERROR_LOG_SHEET_NAME = "錯誤紀錄";
+const ERROR_LOG_SOURCE = "各店訊息一覽表";
 
 /** 準客挽留清單 D 欄「已結案」狀態：不需再追蹤，可定期清理 */
 var RETENTION_CLOSED_STATUSES = ["Overwritten", "Replied", "AutoReplied", "Skipped", "SendFailed"];
 
 /**
- * 將錯誤寫入試算表「錯誤紀錄」工作表，方便查看（LINE Webhook 執行時執行紀錄不易查看可改看此表）。
- * 試算表來源：使用中試算表 → 指令碼屬性 ERROR_LOG_SS_ID → 若專案有 CONFIG.INTEGRATED_SHEET_SS_ID 則用該試算表。
+ * 將錯誤寫入訊息一覽表試算表的「錯誤紀錄」工作表（統一錯誤表），方便集中查看。
+ * @param {string} message 錯誤訊息
+ * @param {string} [context] 上下文
  */
 function appendErrorLog(message, context) {
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) {
-      var id = PropertiesService.getScriptProperties().getProperty("ERROR_LOG_SS_ID");
-      if (id) ss = SpreadsheetApp.openById(id);
-    }
-    if (!ss && typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID) {
-      ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
-    }
-    if (!ss) return;
-    var sheet = ss.getSheetByName(ERROR_LOG_SHEET_NAME);
-    if (!sheet) {
-      sheet = ss.insertSheet(ERROR_LOG_SHEET_NAME);
-      sheet.appendRow(["時間", "錯誤訊息", "上下文"]);
-    }
-    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Asia/Taipei", "yyyy-MM-dd HH:mm:ss");
-    sheet.appendRow([now, String(message || "").slice(0, 500), String(context || "").slice(0, 300)]);
-  } catch (err) {
-    Logger.log("appendErrorLog 寫入失敗: " + err);
-  }
+  appendUnifiedErrorLog(ERROR_LOG_SOURCE, message, context);
 }
 
 // ==========================================

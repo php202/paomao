@@ -3,27 +3,28 @@ const coreConfig = Core.getCoreConfig();
 const LINE_TOKEN_PAOPAO = coreConfig.LINE_TOKEN_PAOPAO;
 const EXTERNAL_SS_ID = coreConfig.EXTERNAL_SS_ID;
 const SHEET_NAME = '2026/ACH紀錄';
-const ERROR_LOG_SHEET_NAME = '錯誤紀錄';
+const ERROR_LOG_SOURCE = '泡泡貓 門市 預約表單 PAOPAO';
 
 /**
- * 將錯誤寫入試算表「錯誤紀錄」工作表，方便查看。
- * Web App（LINE Webhook）執行時沒有「使用中試算表」，請在專案「指令碼屬性」新增 ERROR_LOG_SS_ID = 本專案綁定試算表的 ID（試算表網址中的一串英文數字），錯誤才會寫入該試算表。
+ * 將錯誤寫入訊息一覽表試算表的「錯誤紀錄」工作表（統一錯誤表），方便集中查看。
  */
 function appendErrorLog(message, context) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) {
-      var id = PropertiesService.getScriptProperties().getProperty('ERROR_LOG_SS_ID');
-      if (id) ss = SpreadsheetApp.openById(id);
-    }
-    if (!ss) return;
-    var sheet = ss.getSheetByName(ERROR_LOG_SHEET_NAME);
+    var config = typeof Core !== 'undefined' && Core.getCoreConfig ? Core.getCoreConfig() : {};
+    var ssId = config.LINE_STORE_SS_ID || '1ZV_0vjtQylyEWrrB5n05fBvvQiDoexYvFuztje1Fgm0'; // 訊息一覽表
+    var sheetName = '錯誤紀錄';
+    var ss = SpreadsheetApp.openById(ssId);
+    var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
-      sheet = ss.insertSheet(ERROR_LOG_SHEET_NAME);
-      sheet.appendRow(['時間', '錯誤訊息', '上下文']);
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(['時間', '來源', '錯誤訊息', '上下文']);
+      sheet.setColumnWidth(1, 150);
+      sheet.setColumnWidth(2, 120);
+      sheet.setColumnWidth(3, 300);
+      sheet.setColumnWidth(4, 250);
     }
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
-    sheet.appendRow([now, String(message || '').slice(0, 500), String(context || '').slice(0, 300)]);
+    sheet.appendRow([now, ERROR_LOG_SOURCE, String(message || '').slice(0, 2000), String(context || '').slice(0, 500)]);
   } catch (err) {
     console.error('appendErrorLog 寫入失敗: ' + err);
   }

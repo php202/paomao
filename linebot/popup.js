@@ -455,6 +455,48 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshData();
   document.getElementById('btn-reload-page').addEventListener('click', () => refreshData());
 
+  // 問題回報 / 建議按鈕（放在重整旁邊）
+  const btnFeedback = document.getElementById('btn-feedback');
+  if (btnFeedback) {
+    btnFeedback.addEventListener('click', () => {
+      // 若有指定 Email，優先開啟預填寫的 mailto 連結
+      const FEEDBACK_EMAIL = ""; // 例：'you@example.com'
+      if (FEEDBACK_EMAIL) {
+        const subject = encodeURIComponent("各店訊息一覽 外掛問題 / 建議回報");
+        const body = encodeURIComponent(
+          [
+            "您好，我這邊在使用「各店訊息一覽」外掛時有一些問題或建議：",
+            "",
+            "【請簡單描述狀況或建議】",
+            "",
+            "（可附上截圖，說明目前在哪個畫面、操作了哪些步驟）"
+          ].join("\n")
+        );
+        const mailtoUrl = `mailto:${FEEDBACK_EMAIL}?subject=${subject}&body=${body}`;
+        chrome.tabs.create({ url: mailtoUrl });
+        return;
+      }
+
+      // 若未來有正式的問題回報表單，可在這裡填入網址並改成開啟新分頁
+      const FEEDBACK_URL = ""; // 例：'https://your-feedback-form-url'
+      if (FEEDBACK_URL) {
+        chrome.tabs.create({ url: FEEDBACK_URL });
+        return;
+      }
+
+      // 未設定 Email / 表單網址時的預設提示
+      const msg = [
+        "若外掛有問題、或有任何改進建議，",
+        "請截圖目前畫面，並將說明與截圖傳給系統維護者（工程師／主管）。",
+        "",
+        "（若之後有專用的 Email 或「問題回報表單」，",
+        "  可在程式內填入 FEEDBACK_EMAIL 或 FEEDBACK_URL，",
+        "  點擊本按鈕就會自動開啟預填寫的信件或表單。）"
+      ].join("\n");
+      alert(msg);
+    });
+  }
+
   // ----------------------------------------------------
   // 常用文字：可編輯、自動儲存、複製按鈕
   // ----------------------------------------------------

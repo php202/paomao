@@ -161,34 +161,29 @@ function isDuplicatedEvent(eventId) {
     return false;
   }
 }
-// 📝 將錯誤寫入 Google Sheet
+// 📝 將錯誤寫入訊息一覽表統一錯誤紀錄表
 function logErrorToSheet(userId, userMessage, error) {
   try {
-    // 固定寫入除錯清單（專用試算表/分頁）
-    const DEBUG_LOG_SS_ID = "1GH2XbihFIY0AX8SMF9Tk6igrVKPpA_vMJVlkDkJjpe4";
-    const DEBUG_LOG_SHEET_ID = 565313461;
-    const sheetName = "系統除錯紀錄";
-    const ss = SpreadsheetApp.openById(DEBUG_LOG_SS_ID);
-    let sheet = ss.getSheetById(DEBUG_LOG_SHEET_ID) || ss.getSheetByName(sheetName);
-    
-    // 如果沒有這個分頁，自動建立並加上標題
+    var config = typeof Core !== "undefined" && Core.getCoreConfig ? Core.getCoreConfig() : {};
+    var ssId = config.LINE_STORE_SS_ID || "1ZV_0vjtQylyEWrrB5n05fBvvQiDoexYvFuztje1Fgm0"; // 訊息一覽表
+    var sheetName = "錯誤紀錄";
+    var source = "泡泡貓 員工打卡 Line@";
+    var ss = SpreadsheetApp.openById(ssId);
+    var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(["發生時間", "User ID", "使用者輸入內容", "錯誤訊息", "錯誤堆疊(Stack)"]);
-      sheet.setColumnWidth(1, 150); // 時間
-      sheet.setColumnWidth(3, 200); // 輸入內容
-      sheet.setColumnWidth(4, 300); // 錯誤訊息
+      sheet.appendRow(["時間", "來源", "錯誤訊息", "上下文"]);
+      sheet.setColumnWidth(1, 150);
+      sheet.setColumnWidth(2, 120);
+      sheet.setColumnWidth(3, 300);
+      sheet.setColumnWidth(4, 250);
     }
-    
-    // 寫入錯誤資訊
-    const timestamp = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss");
-    // 將錯誤堆疊轉為字串，方便除錯
-    const stackTrace = error.stack || "No stack trace";
-    
-    sheet.appendRow([timestamp, userId, userMessage, error.toString(), stackTrace]);
-    
+    var timestamp = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd HH:mm:ss");
+    var context = "User ID: " + String(userId || "").slice(0, 100) + "; 輸入: " + String(userMessage || "").slice(0, 200);
+    var stackTrace = (error && error.stack) ? String(error.stack).slice(0, 300) : "";
+    if (stackTrace) context += "; 堆疊: " + stackTrace;
+    sheet.appendRow([timestamp, source, String((error && error.toString) ? error.toString() : String(error)).slice(0, 2000), context.slice(0, 500)]);
   } catch (loggingError) {
-    // 萬一連寫入 Log 都失敗 (例如 Google Drive 掛了)，只好印在後台
-    console.error("❌ 無法寫入除錯紀錄表:", loggingError);
+    console.error("❌ 無法寫入統一錯誤紀錄表:", loggingError);
   }
 }
