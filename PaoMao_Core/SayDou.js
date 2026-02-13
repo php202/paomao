@@ -753,6 +753,46 @@ function getAllStorecashAddRecordByMembid(membid, pageSize) {
 }
 
 /**
+ * 依 membid 取得會員的預約記錄，回傳「未來且未取消」的有效預約
+ * API: /api/management/calendar/reservation/record/saydou/{membid}/{membid}
+ * @param {number} membid 會員 ID（對應 saydouUserId）
+ * @returns {Array<{rsvtim:string, stonam:string, txtser:string}>} 有效預約陣列
+ */
+function getReservationRecordByMembid(membid) {
+  if (!membid) return [];
+  var bearerToken = getBearerTokenFromSheet();
+  var apiUrl = 'https://saywebdatafeed.saydou.com/api/management/calendar/reservation/record/saydou/' +
+    membid + '/' + membid + '?page=0&limit=20&sort=rsvtim&order=desc';
+  try {
+    var response = UrlFetchApp.fetch(apiUrl, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + bearerToken },
+      muteHttpExceptions: true
+    });
+    var json = JSON.parse(response.getContentText() || '{}');
+    if (!json.status || !json.data || !json.data.items) return [];
+    var items = json.data.items;
+    var now = new Date();
+    var out = [];
+    for (var i = 0; i < items.length; i++) {
+      var r = items[i];
+      if (r.memcel === 'Y') continue;
+      var rsvtim = r.rsvtim || '';
+      if (!rsvtim) continue;
+      var rsvDate = new Date(rsvtim);
+      if (isNaN(rsvDate.getTime()) || rsvDate < now) continue;
+      var stonam = (r.stor && r.stor.stonam) ? r.stor.stonam : '';
+      var txtser = r.txtser || r.services || '';
+      out.push({ rsvtim: rsvtim, stonam: stonam, txtser: txtser });
+    }
+    return out;
+  } catch (e) {
+    Logger.log('getReservationRecordByMembid exception: ' + (e && e.message));
+    return [];
+  }
+}
+
+/**
  * 檢查 SayDou Bearer Token 是否有效；若無效或為空則發送通知（Email）。
  * 可由時間驅動觸發排程執行（例如每日一次）。
  * 指令碼屬性可設：PAO_CAT_ADMIN_EMAIL（通知寄送對象，多個用逗號分隔）；未設則只寫入 Logger。

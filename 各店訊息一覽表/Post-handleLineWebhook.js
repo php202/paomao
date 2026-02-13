@@ -93,6 +93,22 @@ function handleLineWebhook(data) {
     var events = data.events;
     for (var i = 0; i < events.length; i++) {
     const event = events[i];
+
+    if (event.type === 'postback' && event.postback && event.postback.data) {
+      var postbackData = event.postback.data;
+      var userId = event.source ? event.source.userId : "";
+      var replyToken = event.replyToken;
+      var storeInfo = data.destination ? findStoreConfig(userId, data.destination) : null;
+      var token = storeInfo ? storeInfo.token : null;
+      if (postbackData.indexOf("action=book_reengagement") === 0 && typeof handleReengagementBooking === "function") {
+        try {
+          handleReengagementBooking(postbackData, userId, replyToken, token);
+        } catch (pbErr) {
+          appendErrorLog("handleReengagementBooking: " + (pbErr && pbErr.message), "postback");
+        }
+      }
+      continue;
+    }
     
     if (event.type === 'message' && event.message.type === 'text') {
       const msg = event.message.text;
@@ -466,7 +482,7 @@ function messFilter(msg) {
       desc: "查詢空位",
       useAI: false, // ❌ 改成不用 AI，直接用模板帶入空位
       // 注意：${slots} 會被自動替換成查到的空位時間
-      template: "Hi ${name}，想預約嗎？系統查到最近還有空位：\n${slots}\n\n需要幫您保留哪個時段呢？"
+      template: "Hi ${name}，想預約嗎？系統查到最近還有空位：\n${slots}\n\n有哪一個時段對妳來說比較方便嗎？\n如果想預約的話，再麻煩留下你的【姓名、電話】，稍後為妳登記保留喔。"
     },
 
     // -----------------------------------------------------------

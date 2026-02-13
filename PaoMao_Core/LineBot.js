@@ -121,6 +121,81 @@ function sendLinePushText(userId, text, token) {
   }
 }
 
+/**
+ * 發送回訪提醒 Flex Message（含可預約時段按鈕）
+ * @param {string} lineUserId - LINE 使用者 ID
+ * @param {string} customerName - 客戶名稱
+ * @param {string} lastVisitDate - 上次來訪日期，如 "1/1"
+ * @param {number} daysSince - 距上次已過天數
+ * @param {string} suggestedDate - 建議回訪日，如 "2026-02-05"
+ * @param {Array<string>} availableSlots - 可預約時段陣列，如 ["11:00","14:00","16:00"]
+ * @param {string} phone - 客戶手機
+ * @param {string} storeId - 分店 SayDou ID
+ * @param {string} storeName - 分店名稱
+ * @param {string} token - Channel Access Token
+ */
+function sendReengagementFlexMessage(lineUserId, customerName, lastVisitDate, daysSince, suggestedDate, availableSlots, phone, storeId, storeName, token) {
+  if (!lineUserId || !token) return false;
+  var suggestedShort = suggestedDate;
+  if (suggestedDate && suggestedDate.length >= 10) {
+    var parts = suggestedDate.split("-");
+    if (parts.length >= 2) suggestedShort = parts[1] + "/" + parts[2];
+  }
+  var slotButtons = [];
+  var maxSlots = Math.min(availableSlots && availableSlots.length ? availableSlots.length : 0, 3);
+  for (var i = 0; i < maxSlots; i++) {
+    var slot = availableSlots[i];
+    var postbackData = "action=book_reengagement&phone=" + encodeURIComponent(phone || "") + "&storeId=" + encodeURIComponent(storeId || "") + "&slot=" + encodeURIComponent(slot || "") + "&suggestedDate=" + encodeURIComponent(suggestedDate || "");
+    slotButtons.push({
+      type: "button",
+      style: "primary",
+      action: { type: "postback", label: slot || "", data: postbackData }
+    });
+  }
+  if (slotButtons.length === 0) {
+    slotButtons.push({
+      type: "button",
+      action: { type: "uri", label: "聯繫預約", uri: "https://line.me/R/ti/p/@paopao" }
+    });
+  }
+  var bodyContents = [
+    { type: "text", text: "您好" + (customerName ? " " + customerName : "") + "！", weight: "bold", size: "md" },
+    { type: "text", text: "您上次來的時間 " + (lastVisitDate || "—") + " 已經過了 " + (daysSince || 0) + " 天", wrap: true, size: "sm" },
+    { type: "text", text: "到了您習慣的保養時間囉～", wrap: true, size: "sm", margin: "md" },
+    { type: "text", text: "建議回訪日：" + (suggestedShort || "—"), size: "sm" },
+    { type: "text", text: "分店：" + (storeName || "—"), size: "xs", color: "#666666" }
+  ];
+  var footerContents = [
+    { type: "text", text: "請選擇預約時段：", size: "xs", margin: "md" },
+    { type: "box", layout: "horizontal", margin: "sm", contents: slotButtons }
+  ];
+  var bubble = {
+    type: "bubble",
+    header: {
+      type: "box", layout: "vertical",
+      contents: [{ type: "text", text: "回訪提醒", weight: "bold", size: "lg" }]
+    },
+    body: { type: "box", layout: "vertical", contents: bodyContents },
+    footer: { type: "box", layout: "vertical", contents: footerContents }
+  };
+  var payload = {
+    to: lineUserId,
+    messages: [{ type: "flex", altText: "回訪提醒：" + (suggestedShort || ""), contents: bubble }]
+  };
+  try {
+    var res = UrlFetchApp.fetch("https://api.line.me/v2/bot/message/push", {
+      method: "post",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    return res.getResponseCode() === 200;
+  } catch (e) {
+    console.error("[Core] sendReengagementFlexMessage Error:", e);
+    return false;
+  }
+}
+
 // 取得使用者名稱
 function getUserDisplayName(userId, groupId, roomId, token) {
   if (!userId) return "未知用戶";

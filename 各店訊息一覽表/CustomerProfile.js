@@ -41,7 +41,8 @@ const CONFIG = {
   INTEGRATED_PHONE_COL: 1,                   // 手機在第幾欄 (0-based)，對應 B 欄
   INTEGRATED_HEADERS: [
     "時間", "手機", "員工填寫", "客人問卷", "line對話", "消費紀錄", "儲值紀錄",
-    "saydouUserId", "ai prompt", "lineUserId", "AI分析結果", "ai調整建議"
+    "saydouUserId", "ai prompt", "lineUserId", "AI分析結果", "ai調整建議",
+    "預約記錄", "建議下次回訪日", "最後推播時間", "推播次數", "點擊積分", "連續未點擊", "客戶類型"
   ]
 };
 
@@ -94,6 +95,32 @@ function syncLineUserIdForPhoneToCustomerState(phone, lineUserId) {
 // ---------------------------------------------------------------------------
 // 1. Upsert：以手機為唯一鍵
 // ---------------------------------------------------------------------------
+
+/** 從客人消費狀態某一列讀取既有回訪追蹤欄位（供 buildIntegratedRow 保留） */
+function getExistingReengagementFromRow(sheet, rowIndex) {
+  if (!sheet || !rowIndex) return null;
+  var h = CONFIG.INTEGRATED_HEADERS;
+  var lastPushIdx = h.indexOf("最後推播時間") + 1;
+  var pushCountIdx = h.indexOf("推播次數") + 1;
+  var clickScoreIdx = h.indexOf("點擊積分") + 1;
+  var consecutiveIdx = h.indexOf("連續未點擊") + 1;
+  var customerTypeIdx = h.indexOf("客戶類型") + 1;
+  if (lastPushIdx < 1 || pushCountIdx < 1) return null;
+  try {
+    var lastPushTime = sheet.getRange(rowIndex, lastPushIdx).getValue();
+    var pushCount = sheet.getRange(rowIndex, pushCountIdx).getValue();
+    var clickScore = sheet.getRange(rowIndex, clickScoreIdx).getValue();
+    var consecutiveNoClick = sheet.getRange(rowIndex, consecutiveIdx).getValue();
+    var customerType = sheet.getRange(rowIndex, customerTypeIdx).getValue();
+    return {
+      lastPushTime: lastPushTime != null ? String(lastPushTime).trim() : "",
+      pushCount: pushCount != null ? String(pushCount).trim() : "",
+      clickScore: clickScore != null ? String(clickScore).trim() : "",
+      consecutiveNoClick: consecutiveNoClick != null ? String(consecutiveNoClick).trim() : "",
+      customerType: customerType != null ? String(customerType).trim() : "自動提醒"
+    };
+  } catch (e) { return null; }
+}
 
 function findRowIndexByPhone(sheet, phone, phoneColIdx) {
   if (!sheet || !phone) return null;
@@ -761,8 +788,9 @@ function formatQuestionnaireForSummary(questionnaireHistory) {
  * @param {string} timestamp 更新時間
  * @param {object|null} currentSubmission 本次問卷（可 null）
  * @param {string} [existingLineUserId] 既有 lineUserId（可多個，逗號或分號分隔），用 [a,b,...] 從訊息一覽拉取；更新時保留此欄
+ * @param {object} [existingReengagement] 既有回訪追蹤欄位，更新時保留
  */
-function buildIntegratedRow(phone, timestamp, currentSubmission, existingLineUserId) {
+function buildIntegratedRow(phone, timestamp, currentSubmission, existingLineUserId, existingReengagement) {
   const customerSs = SpreadsheetApp.openById(CONFIG.CUSTOMER_SHEET_ID);
   const questionnaireHistory = getAllQuestionnaireHistoryByPhone(customerSs, phone);
   const employeeNotes = getAllEmployeeNotesByPhone(phone);
@@ -795,6 +823,40 @@ function buildIntegratedRow(phone, timestamp, currentSubmission, existingLineUse
     ? (storecashRecordText.length > 8000 ? storecashRecordText.slice(0, 8000) + "\n…（詳見 AI專用Prompt）" : storecashRecordText)
     : (saydouSummary.storeText || "—");
 
+  // 預約記錄、建議下次回訪日（由 Core API 計算）
+  var reservationRecordText = "—";
+  var suggestedNextVisit = "";
+  if (saydouSummary.member && saydouSummary.member.membid) {
+    try {
+      var reservations = typeof Core.getReservationRecordByMembid === "function"
+        ? Core.getReservationRecordByMembid(saydouSummary.member.membid) : [];
+      if (reservations && reservations.length > 0) {
+        reservationRecordText = reservations.map(function (r) {
+          var d = (r.rsvtim || "").slice(0, 16);
+          return d + " " + (r.stonam || "");
+        }).join("\n");
+      }
+    } catch (e) { console.warn("getReservationRecordByMembid:", e); }
+    try {
+      var transactions = typeof Core.getAllTransactionsByMembid === "function"
+        ? Core.getAllTransactionsByMembid(saydouSummary.member.membid, 50) : [];
+      if (transactions && transactions.length > 0) {
+        var freq = typeof Core.calculateConsumptionFrequency === "function"
+          ? Core.calculateConsumptionFrequency(transactions) : 30;
+        var lastDate = transactions[0].rectim || transactions[0].cretim || "";
+        suggestedNextVisit = typeof Core.calculateSuggestedNextVisit === "function"
+          ? Core.calculateSuggestedNextVisit(lastDate, freq) : "";
+      }
+    } catch (e) { console.warn("calculateSuggestedNextVisit:", e); }
+  }
+
+  var re = existingReengagement || {};
+  var lastPushTime = re.lastPushTime != null ? String(re.lastPushTime) : "";
+  var pushCount = re.pushCount != null ? String(re.pushCount) : "";
+  var clickScore = re.clickScore != null ? String(re.clickScore) : "";
+  var consecutiveNoClick = re.consecutiveNoClick != null ? String(re.consecutiveNoClick) : "";
+  var customerType = re.customerType != null ? String(re.customerType) : "自動提醒";
+
   return [
     timestamp,
     phone,
@@ -806,7 +868,14 @@ function buildIntegratedRow(phone, timestamp, currentSubmission, existingLineUse
     saydouUserId,
     aiPromptText,
     lineUserIdVal,
-    ""  // AI分析結果（由 AI 戰報函式寫入）
+    "",  // AI分析結果（由 AI 戰報函式寫入）
+    reservationRecordText,
+    suggestedNextVisit,
+    lastPushTime,
+    pushCount,
+    clickScore,
+    consecutiveNoClick,
+    customerType
   ];
 }
 
@@ -833,14 +902,16 @@ function onFormSubmit_Survey(e) {
     const rowIndex = findRowIndexByPhone(sheet, phone, CONFIG.INTEGRATED_PHONE_COL);
     const lineUserIdCol = CONFIG.INTEGRATED_HEADERS.indexOf("lineUserId") + 1;
     let existingLineUserId = "";
+    var existingReengagement = null;
     if (rowIndex !== null && lineUserIdCol >= 1) {
       try { existingLineUserId = sheet.getRange(rowIndex, lineUserIdCol).getValue(); } catch (e) {}
       if (existingLineUserId == null) existingLineUserId = "";
       else existingLineUserId = String(existingLineUserId).trim();
+      existingReengagement = getExistingReengagementFromRow(sheet, rowIndex);
     }
 
     const currentSubmission = { score: score, skinType: skinType, recommend: recommend, note: note, gossip: gossip };
-    const rowData = buildIntegratedRow(phone, timestamp, currentSubmission, existingLineUserId);
+    const rowData = buildIntegratedRow(phone, timestamp, currentSubmission, existingLineUserId, existingReengagement);
     upsertCustomerRow(integratedSs, phone, rowData);
     // 本筆剛更新 A 欄時間戳記，故跑 AI 並寫入 AI分析結果
     var aiResultCol = CONFIG.INTEGRATED_HEADERS.indexOf("AI分析結果") + 1;
@@ -1012,14 +1083,16 @@ function refreshCustomerByPhone(phone, options) {
   const rowIndex = findRowIndexByPhone(sheet, normalized, CONFIG.INTEGRATED_PHONE_COL);
   const lineUserIdCol = CONFIG.INTEGRATED_HEADERS.indexOf("lineUserId") + 1;
   let existingLineUserId = "";
+  var existingReengagement = null;
   if (rowIndex !== null && lineUserIdCol >= 1) {
     try { existingLineUserId = sheet.getRange(rowIndex, lineUserIdCol).getValue(); } catch (e) {}
     if (existingLineUserId == null) existingLineUserId = "";
     else existingLineUserId = String(existingLineUserId).trim();
+    existingReengagement = getExistingReengagementFromRow(sheet, rowIndex);
   }
 
   const timestamp = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy/MM/dd HH:mm:ss");
-  const rowData = buildIntegratedRow(normalized, timestamp, null, existingLineUserId);
+  const rowData = buildIntegratedRow(normalized, timestamp, null, existingLineUserId, existingReengagement);
   if (leaveEmployeeEmpty && rowData.length > 2) rowData[2] = "";  // 員工填寫欄留空
   upsertCustomerRow(integratedSs, normalized, rowData);
   // 僅在未 skipAI 時跑 AI 並寫入 AI分析結果（整表更新時 skipAI 可大幅縮短時間、避免逾時）
@@ -1209,6 +1282,244 @@ function buildCustomerProfileSummarySheet() {
     summarySheet.appendRow([phone != null ? String(phone) : "", timeVal != null ? String(timeVal) : "", hasLine, consumeSummary, storeSummary]);
   }
   console.log("buildCustomerProfileSummarySheet: 已寫入 " + (lastRow - dataStartRow + 1) + " 筆至「客人樣貌摘要」");
+}
+
+// ---------------------------------------------------------------------------
+// 回訪提醒：封測設定與掃描
+// ---------------------------------------------------------------------------
+
+var REENGAGEMENT_CONFIG = {
+  betaUserIds: ["Ue79f58dabfdeb9d23cdf7b56b3742664"],
+  enablePush: false,
+  enableReply: false
+};
+
+function isReengagementBetaUser(lineUserId) {
+  if (!lineUserId) return false;
+  var ids = parseLineUserIds(lineUserId);
+  var allowed = REENGAGEMENT_CONFIG.betaUserIds || [];
+  return ids.some(function (id) {
+    return allowed.indexOf(String(id).trim()) >= 0;
+  });
+}
+
+function getAvailableSlotsForDate(sayId, dateStr) {
+  if (!sayId || !dateStr || typeof Core.findAvailableSlots !== "function") return [];
+  try {
+    var result = Core.findAvailableSlots(sayId, dateStr, dateStr, 1, 90, {});
+    var data = (result && result.data) ? result.data : [];
+    if (data.length > 0 && data[0].times) return Array.isArray(data[0].times) ? data[0].times : [String(data[0].times)];
+    return [];
+  } catch (e) {
+    console.warn("getAvailableSlotsForDate:", e);
+    return [];
+  }
+}
+
+function getLastStoreFromMembid(membid) {
+  if (!membid || typeof Core.getAllTransactionsByMembid !== "function") return { storid: null, stonam: "" };
+  try {
+    var tx = Core.getAllTransactionsByMembid(membid, 5);
+    if (!tx || tx.length === 0) return { storid: null, stonam: "" };
+    var t = tx[0];
+    var storid = (t.storid != null) ? String(t.storid) : ((t.stor && t.stor.storid != null) ? String(t.stor.storid) : null);
+    var stonam = (t.stor && t.stor.stonam) ? t.stor.stonam : "";
+    return { storid: storid, stonam: stonam };
+  } catch (e) {
+    return { storid: null, stonam: "" };
+  }
+}
+
+function scanAndSendReengagementNotifications() {
+  var ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
+  var sheet = getOrCreateIntegratedSheet(ss);
+  var lastRow = sheet.getLastRow();
+  var h = CONFIG.INTEGRATED_HEADERS;
+  var phoneCol = CONFIG.INTEGRATED_PHONE_COL + 1;
+  var lineUserIdCol = h.indexOf("lineUserId") + 1;
+  var saydouUserIdCol = h.indexOf("saydouUserId") + 1;
+  var reservationCol = h.indexOf("預約記錄") + 1;
+  var suggestedCol = h.indexOf("建議下次回訪日") + 1;
+  var lastPushCol = h.indexOf("最後推播時間") + 1;
+  var pushCountCol = h.indexOf("推播次數") + 1;
+  var consecutiveCol = h.indexOf("連續未點擊") + 1;
+  var customerTypeCol = h.indexOf("客戶類型") + 1;
+
+  if (lineUserIdCol < 1 || suggestedCol < 1) {
+    console.warn("scanAndSendReengagementNotifications: 缺少必要欄位");
+    return { scanned: 0, pushed: 0, skipped: 0 };
+  }
+
+  var headerB = lastRow >= 1 ? sheet.getRange(1, phoneCol).getValue() : "";
+  var dataStartRow = (headerB === "手機" || headerB === "手機號碼") ? 2 : 1;
+  if (lastRow < dataStartRow) return { scanned: 0, pushed: 0, skipped: 0 };
+
+  var todayStr = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd");
+  var sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  var token = (typeof Core !== "undefined" && typeof Core.getCoreConfig === "function") ? (Core.getCoreConfig().LINE_TOKEN_PAOPAO || "") : "";
+  var enablePush = REENGAGEMENT_CONFIG.enablePush === true;
+  var scanned = 0, pushed = 0, skipped = 0;
+
+  for (var r = dataStartRow; r <= lastRow; r++) {
+    scanned++;
+    var lineUserIdRaw = sheet.getRange(r, lineUserIdCol).getValue();
+    if (!lineUserIdRaw || String(lineUserIdRaw).trim() === "") { skipped++; continue; }
+    if (!isReengagementBetaUser(String(lineUserIdRaw))) { skipped++; continue; }
+
+    var customerType = sheet.getRange(r, customerTypeCol).getValue();
+    if (customerType != null && String(customerType).trim() === "需人工跟進") { skipped++; continue; }
+
+    var reservationText = sheet.getRange(r, reservationCol).getValue();
+    if (reservationText != null && String(reservationText).trim() !== "" && String(reservationText).trim() !== "—") {
+      skipped++;
+      continue;
+    }
+
+    var suggestedDate = sheet.getRange(r, suggestedCol).getValue();
+    if (!suggestedDate || String(suggestedDate).trim() === "") { skipped++; continue; }
+    var suggestedStr = String(suggestedDate).trim().slice(0, 10);
+    if (suggestedStr > todayStr) { skipped++; continue; }
+
+    var lastPushVal = sheet.getRange(r, lastPushCol).getValue();
+    if (lastPushVal && !isNaN(new Date(lastPushVal).getTime()) && new Date(lastPushVal) > sevenDaysAgo) {
+      skipped++;
+      continue;
+    }
+
+    var saydouUserId = sheet.getRange(r, saydouUserIdCol).getValue();
+    if (!saydouUserId || String(saydouUserId).trim() === "" || String(saydouUserId).trim() === "—") { skipped++; continue; }
+
+    var phone = sheet.getRange(r, phoneCol).getValue();
+    var storeInfo = getLastStoreFromMembid(saydouUserId);
+    if (!storeInfo.storid) { skipped++; continue; }
+
+    var slots = getAvailableSlotsForDate(storeInfo.storid, suggestedStr);
+    var consumeText = sheet.getRange(r, h.indexOf("消費紀錄") + 1).getValue();
+    var lastVisitDate = "—";
+    var daysSince = 0;
+    if (consumeText && String(consumeText).indexOf("最近：") >= 0) {
+      var m = String(consumeText).match(/最近：([^\s|]+)/);
+      if (m) {
+        lastVisitDate = m[1].slice(5).replace(/-/g, "/");
+        var lastD = new Date(m[1].slice(0, 10));
+        if (!isNaN(lastD.getTime())) daysSince = Math.floor((new Date() - lastD) / (24 * 60 * 60 * 1000));
+      }
+    }
+
+    if (enablePush && token && typeof Core.sendReengagementFlexMessage === "function") {
+      var sent = Core.sendReengagementFlexMessage(
+        String(lineUserIdRaw).split(/[,;]/)[0].trim(),
+        "",
+        lastVisitDate,
+        daysSince,
+        suggestedStr,
+        slots,
+        phone,
+        storeInfo.storid,
+        storeInfo.stonam,
+        token
+      );
+      if (sent) pushed++;
+    } else {
+      console.log("[Reengagement] 封測不發送: " + phone + " lineUserId=" + lineUserIdRaw);
+    }
+
+    if (enablePush) {
+      var nowStr = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy/MM/dd HH:mm:ss");
+      sheet.getRange(r, lastPushCol).setValue(nowStr);
+      var pc = parseInt(sheet.getRange(r, pushCountCol).getValue() || 0, 10);
+      sheet.getRange(r, pushCountCol).setValue(pc + 1);
+      var cn = parseInt(sheet.getRange(r, consecutiveCol).getValue() || 0, 10);
+      sheet.getRange(r, consecutiveCol).setValue(cn + 1);
+      if (cn + 1 >= 2) sheet.getRange(r, customerTypeCol).setValue("需人工跟進");
+    }
+  }
+
+  console.log("scanAndSendReengagementNotifications: 掃描 " + scanned + "，推播 " + pushed + "，略過 " + skipped);
+  return { scanned: scanned, pushed: pushed, skipped: skipped };
+}
+
+function updateReengagementClickScore(phone) {
+  if (!phone) return;
+  var ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
+  var sheet = getOrCreateIntegratedSheet(ss);
+  var rowIndex = findRowIndexByPhone(sheet, Core.normalizePhone(phone), CONFIG.INTEGRATED_PHONE_COL);
+  if (rowIndex === null) return;
+  var h = CONFIG.INTEGRATED_HEADERS;
+  var clickCol = h.indexOf("點擊積分") + 1;
+  var consecutiveCol = h.indexOf("連續未點擊") + 1;
+  var typeCol = h.indexOf("客戶類型") + 1;
+  if (clickCol < 1) return;
+  var score = parseInt(sheet.getRange(rowIndex, clickCol).getValue() || 0, 10);
+  sheet.getRange(rowIndex, clickCol).setValue(score + 1);
+  sheet.getRange(rowIndex, consecutiveCol).setValue(0);
+  sheet.getRange(rowIndex, typeCol).setValue("自動提醒");
+}
+
+function parsePostbackParams(dataStr) {
+  var out = {};
+  if (!dataStr) return out;
+  var parts = dataStr.split("&");
+  for (var i = 0; i < parts.length; i++) {
+    var kv = parts[i].split("=");
+    if (kv.length >= 2) {
+      out[decodeURIComponent(kv[0])] = decodeURIComponent(kv.slice(1).join("=").replace(/\+/g, " "));
+    }
+  }
+  return out;
+}
+
+function handleReengagementBooking(postbackData, lineUserId, replyToken, token) {
+  var params = parsePostbackParams(postbackData);
+  if (params.action !== "book_reengagement") return;
+  if (!isReengagementBetaUser(lineUserId)) return;
+
+  var phone = Core.normalizePhone(params.phone || "");
+  var storeId = params.storeId || "";
+  var slot = params.slot || "";
+  var suggestedDate = params.suggestedDate || "";
+
+  updateReengagementClickScore(phone);
+
+  var bookingSuccess = false;
+  if (phone && storeId && slot && suggestedDate && typeof createReservation === "function") {
+    try {
+      createReservation(phone, suggestedDate, slot, 1.5, "回訪提醒一鍵預約", storeId, 1);
+      bookingSuccess = true;
+    } catch (e) {
+      console.warn("handleReengagementBooking createReservation:", e);
+    }
+  }
+
+  if (!REENGAGEMENT_CONFIG.enableReply || !replyToken || !token) return;
+
+  var replyText = bookingSuccess
+    ? "已為您預約 " + suggestedDate + " " + slot + "，請準時到店喔！"
+    : "預約時發生問題，請直接聯繫門市協助預約，謝謝！";
+
+  if (typeof Core !== "undefined" && typeof Core.sendLineReply === "function") {
+    Core.sendLineReply(replyToken, replyText, token);
+  }
+}
+
+/**
+ * 設定回訪提醒每日觸發器（手動執行一次即可）
+ * 建議每日 10:00 執行 scanAndSendReengagementNotifications
+ */
+function setupReengagementTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "scanAndSendReengagementNotifications") {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  ScriptApp.newTrigger("scanAndSendReengagementNotifications")
+    .timeBased()
+    .everyDays(1)
+    .atHour(10)
+    .create();
+  console.log("已設定回訪提醒每日觸發器（10:00）");
 }
 
 // ---------------------------------------------------------------------------

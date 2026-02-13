@@ -111,3 +111,64 @@ function getMemberRecentTransactionsForPrompt(phone, limit) {
   }
   return out;
 }
+
+/**
+ * 從消費紀錄計算平均消費間隔天數（排除小費）
+ * @param {Array} transactions - transaction 陣列（由近到遠）
+ * @returns {number} 平均間隔天數，至少 7 天；不足 2 筆則回傳 30
+ */
+function calculateConsumptionFrequency(transactions) {
+  if (!transactions || transactions.length < 2) return 30;
+  var dayMs = 24 * 60 * 60 * 1000;
+  var parseDate = function (s) {
+    if (s == null || s === '') return null;
+    var str = String(s).trim();
+    if (str.length >= 10) str = str.slice(0, 10);
+    var d = new Date(str + 'T00:00:00');
+    return isNaN(d.getTime()) ? null : d;
+  };
+  var dates = [];
+  for (var i = 0; i < transactions.length; i++) {
+    var t = transactions[i];
+    var remark = (t.remark != null) ? String(t.remark) : '';
+    if (remark.indexOf('小費') >= 0) continue;
+    var hasXiaofei = false;
+    if (t.ordds && t.ordds.length) {
+      for (var j = 0; j < t.ordds.length; j++) {
+        var godnam = (t.ordds[j].godnam != null) ? String(t.ordds[j].godnam) : '';
+        if (godnam.indexOf('小費') >= 0) { hasXiaofei = true; break; }
+      }
+    }
+    if (hasXiaofei) continue;
+    var d = parseDate(t.rectim || t.cretim);
+    if (d) dates.push(d);
+  }
+  if (dates.length < 2) return 30;
+  dates.sort(function (a, b) { return b.getTime() - a.getTime(); });
+  var gaps = [];
+  for (var k = 0; k < dates.length - 1; k++) {
+    var gap = Math.round((dates[k].getTime() - dates[k + 1].getTime()) / dayMs);
+    if (gap > 0) gaps.push(gap);
+  }
+  if (gaps.length === 0) return 30;
+  var sum = 0;
+  for (var m = 0; m < gaps.length; m++) sum += gaps[m];
+  var avg = Math.round(sum / gaps.length);
+  return avg < 7 ? 7 : avg;
+}
+
+/**
+ * 根據上次消費日期與平均消費間隔，計算建議下次回訪日
+ * @param {string} lastVisitDate - 上次消費日期，如 "2026-01-01" 或 "2026-01-01 12:00:00"
+ * @param {number} avgFrequencyDays - 平均消費間隔天數
+ * @returns {string} yyyy-MM-dd 格式的建議回訪日
+ */
+function calculateSuggestedNextVisit(lastVisitDate, avgFrequencyDays) {
+  if (!lastVisitDate || avgFrequencyDays == null) return '';
+  var str = String(lastVisitDate).trim();
+  if (str.length >= 10) str = str.slice(0, 10);
+  var d = new Date(str + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + (avgFrequencyDays || 30));
+  return Utilities.formatDate(d, 'Asia/Taipei', 'yyyy-MM-dd');
+}
