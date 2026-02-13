@@ -71,27 +71,51 @@ function getCustomerInfoPageUrl() {
 
 // 2. 建立一個簡單的縮寫函式，不用每次都打 Core.sendLineReply(..., ..., LINE_TOKEN)
 // Invalid reply token：LINE 重試或 token 過期時會發生，token 已無法使用，不 rethrow、不寫入錯誤清單
+// ★ 直接呼叫 LINE API（不經 Core），避免 PaoMao_Core 帯域幅上限
 function reply(replyToken, content) {
+  if (!replyToken || !LINE_TOKEN_PAOSTAFF) return;
   try {
-    // (A) 如果傳入的是純文字 (String) -> 呼叫 sendLineReply
     if (typeof content === 'string') {
-      Core.sendLineReply(replyToken, content, LINE_TOKEN_PAOSTAFF);
-    } 
-    // (B) 如果傳入的是物件或陣列 -> 呼叫 sendLineReplyObj
-    else {
-      // 防呆：LINE API 的 messages 必須是陣列 (Array)
-      // 如果使用者只傳入單一物件 (Object)，我們自動幫他包成陣列 [Object]
+      directSendLineReply(replyToken, content, LINE_TOKEN_PAOSTAFF);
+    } else {
       const messages = Array.isArray(content) ? content : [content];
-      Core.sendLineReplyObj(replyToken, messages, LINE_TOKEN_PAOSTAFF);
+      directSendLineReplyObj(replyToken, messages, LINE_TOKEN_PAOSTAFF);
     }
   } catch (e) {
     var msg = (e && e.message) ? String(e.message) : String(e);
     if (msg.indexOf("Invalid reply token") !== -1) {
-      // 已知狀況：LINE 重試或 token 過期，不 rethrow、不寫入錯誤清單
       try { console.log("[reply] Invalid reply token，已略過（通常為 LINE 重試）"); } catch (_) {}
       return;
     }
     throw e;
+  }
+}
+
+/** 直接呼叫 LINE Reply API（不經 Core），減輕 PaoMao_Core 帯域幅負荷。失敗時 throw。 */
+function directSendLineReply(replyToken, text, token) {
+  var res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+    method: 'post',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    payload: JSON.stringify({ replyToken: replyToken, messages: [{ type: 'text', text: text }] }),
+    muteHttpExceptions: true
+  });
+  if (res.getResponseCode() !== 200) {
+    var body = res.getContentText();
+    throw new Error('LINE Reply 失敗: ' + (body ? body.slice(0, 200) : res.getResponseCode()));
+  }
+}
+
+/** 直接呼叫 LINE Reply API（Flex/template 等物件訊息）。失敗時 throw。 */
+function directSendLineReplyObj(replyToken, messages, token) {
+  var res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+    method: 'post',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    payload: JSON.stringify({ replyToken: replyToken, messages: messages }),
+    muteHttpExceptions: true
+  });
+  if (res.getResponseCode() !== 200) {
+    var body = res.getContentText();
+    throw new Error('LINE Reply 失敗: ' + (body ? body.slice(0, 200) : res.getResponseCode()));
   }
 }
 // Debug helper: 直接測試 Core.sendLineReply 是否可用

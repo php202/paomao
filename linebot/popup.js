@@ -460,7 +460,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnFeedback) {
     btnFeedback.addEventListener('click', () => {
       // 若有指定 Email，優先開啟預填寫的 mailto 連結
-      const FEEDBACK_EMAIL = ""; // 例：'you@example.com'
+      const FEEDBACK_EMAIL = "paopaomao.of@gmail.com"; // 例：'you@example.com'
       if (FEEDBACK_EMAIL) {
         const subject = encodeURIComponent("各店訊息一覽 外掛問題 / 建議回報");
         const body = encodeURIComponent(
