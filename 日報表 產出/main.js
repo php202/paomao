@@ -92,6 +92,15 @@ function handleReportApiRequest(params) {
       return jsonReportOut({ status: 'error', message: msg });
     }
   }
+  if (action === 'runYangmeiJinshanDailyReport') {
+    try {
+      runYangmeiJinshanDailyReport();
+      return jsonReportOut({ status: 'ok', message: '楊梅金山店日帳已產出' });
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      return jsonReportOut({ status: 'error', message: msg });
+    }
+  }
   return jsonReportOut({ status: 'error', message: '未知 action: ' + (action || '(未提供)') });
 }
 
@@ -302,4 +311,112 @@ function runAccNeed() {
   }
 
   console.log("所有作業完成！");
+}
+
+/**
+ * 楊梅金山店 日帳報表（一次性使用，跑完可刪）
+ * 每跑一天就 append 進「營收報表_楊梅金山」，持續跑到今天。若逾時當機，下次執行會從最後一天續跑。
+ */
+function runYangmeiJinshanDailyReport() {
+  const STORE_NAME = '楊梅金山';
+  const START_DATE_STR = '2025-03-01';
+
+  const { url: coreApiUrl, key: coreApiKey, useApi } = getCoreApiParams();
+  if (!useApi) {
+    throw new Error('請在指令碼屬性設定 PAO_CAT_CORE_API_URL 與 PAO_CAT_SECRET_KEY。');
+  }
+
+  const configRes = callCoreApi(coreApiUrl, coreApiKey, 'getCoreConfig', {});
+  const ssId = (configRes && configRes.status === 'ok' && configRes.data && configRes.data.DAILY_ACCOUNT_REPORT_SS_ID)
+    ? String(configRes.data.DAILY_ACCOUNT_REPORT_SS_ID).trim()
+    : '';
+  if (!ssId) {
+    throw new Error('Core API getCoreConfig 未回傳 DAILY_ACCOUNT_REPORT_SS_ID。');
+  }
+
+  const storeRes = callCoreApi(coreApiUrl, coreApiKey, 'getLineSayDouInfoMap', {});
+  const storeMap = (storeRes && storeRes.status === 'ok' && storeRes.data && typeof storeRes.data === 'object') ? storeRes.data : {};
+  let targetStore = null;
+  for (const info of Object.values(storeMap)) {
+    if (info && info.saydouId && (info.name || '').indexOf(STORE_NAME) >= 0) {
+      targetStore = { storid: info.saydouId, alias: info.name || STORE_NAME };
+      break;
+    }
+  }
+  if (!targetStore) {
+    throw new Error('找不到店家「' + STORE_NAME + '」。');
+  }
+
+  const externalSs = SpreadsheetApp.openById(ssId);
+  const timeZone = externalSs.getSpreadsheetTimeZone();
+  const getFormattedDate = (date) => Utilities.formatDate(date, timeZone, 'yyyy-MM-dd');
+
+  const SHEET_NAME = '營收報表_楊梅金山';
+  let sheet = externalSs.getSheetByName(SHEET_NAME);
+  if (!sheet) sheet = externalSs.insertSheet(SHEET_NAME);
+
+  const HEADERS = ['日期', '店家', '現金總額', '消費紀錄(現金)', '儲值(現金)', '第三方總額', '轉帳入帳', 'LINE入帳', '轉帳未收', 'LINE未收', '今日業績'];
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold');
+  }
+
+  // --- 抓金山店表最後一天：從「營收報表_楊梅金山」最後一列取得日期，下次從該日+1 繼續跑；起點不早於 2025-03-01，終點為今天 ---
+  const minStartDate = new Date(START_DATE_STR);
+  let nextDate;
+  if (sheet.getLastRow() >= 2) {
+    const lastDateVal = sheet.getRange(sheet.getLastRow(), 1).getValue();
+    const lastDateStr = lastDateVal != null ? (typeof lastDateVal === 'object' && lastDateVal.getTime ? getFormattedDate(lastDateVal) : String(lastDateVal).trim()) : '';
+    if (lastDateStr) {
+      const lastDate = new Date(lastDateStr);
+      nextDate = new Date(lastDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+    }
+  }
+  if (!nextDate || nextDate < minStartDate) {
+    nextDate = new Date(minStartDate);
+  }
+
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  if (nextDate > today) {
+    const excelUrl = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?format=xlsx&gid=' + sheet.getSheetId();
+    try {
+      const ui = SpreadsheetApp.getUi();
+      if (ui) ui.alert('楊梅金山店日帳已全部完成。\n\n下載 Excel：\n' + excelUrl);
+    } catch (e) {}
+    return;
+  }
+
+  // --- 持續跑：每跑一天就 append 進 sheet，直到今天為止（若逾時當機，下次執行會從最後一天續跑）---
+  let currentDate = new Date(nextDate);
+  let processed = 0;
+  while (currentDate <= today) {
+    const dateStr = getFormattedDate(currentDate);
+    const dailyRes = callCoreApi(coreApiUrl, coreApiKey, 'fetchDailyIncome', { date: dateStr, storeId: String(targetStore.storid) });
+    const apiResponse = (dailyRes && dailyRes.status === 'ok') ? dailyRes.data : null;
+
+    const runData = (apiResponse && apiResponse.data && apiResponse.data.totalRow) ? apiResponse.data.totalRow : null;
+    const rowData = runData ? [
+      dateStr, targetStore.alias,
+      runData.sum_paymentMethod?.[0]?.total || 0,
+      runData.cashpay?.business || 0,
+      runData.cashpay?.unearn || 0,
+      (runData.sum_paymentMethod?.[2]?.total || 0) + (runData.sum_paymentMethod?.[9]?.total || 0),
+      runData.paymentMethod?.[9]?.total || 0,
+      runData.paymentMethod?.[2]?.total || 0,
+      (runData.sum_paymentMethod?.[9]?.total || 0) - (runData.paymentMethod?.[9]?.total || 0),
+      (runData.sum_paymentMethod?.[2]?.total || 0) - (runData.paymentMethod?.[2]?.total || 0),
+      runData.businessIncome?.service ?? 0
+    ] : [dateStr, targetStore.alias, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    sheet.appendRow(rowData);
+    SpreadsheetApp.flush();
+    processed++;
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  const excelUrl = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?format=xlsx&gid=' + sheet.getSheetId();
+  try {
+    const ui = SpreadsheetApp.getUi();
+    if (ui) ui.alert('楊梅金山店日帳已完成，共寫入 ' + processed + ' 天。\n\n下載 Excel：\n' + excelUrl);
+  } catch (e) {}
 }
