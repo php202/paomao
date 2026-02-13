@@ -1,4 +1,7 @@
 // --- 全域設定區 ---
+/** 2026請款表試算表 ID */
+const PAYMENT_SS_ID = '17hX7CjeDj2xdKBIt9TKG6iJF5lB38uXwj2kdhb4oIQE';
+
 const CONFIG = {
   // 1. Google Slides 模版 ID
   TEMPLATE_ID: '19rIcdJxE6eh_KA2o1kl0vt6BSqTnv075rXWdBVZJ47s',  
@@ -38,7 +41,7 @@ const CONFIG = {
 };
 
 function createLaborReceipts() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(PAYMENT_SS_ID);
   const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) {
     SpreadsheetApp.getUi().alert('找不到工作表：' + CONFIG.SHEET_NAME);

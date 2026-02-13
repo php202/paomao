@@ -4,13 +4,11 @@ function searchAvailability(e) {
 }
 
 function getSlots(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) {
-    var props = PropertiesService.getScriptProperties();
-    var id = props.getProperty('GETSLOTS_SS_ID') || props.getProperty('ERROR_LOG_SS_ID');
-    if (id) ss = SpreadsheetApp.openById(id);
-    if (!ss && typeof CONFIG !== 'undefined' && CONFIG.INTEGRATED_SHEET_SS_ID) ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
-  }
+  var props = PropertiesService.getScriptProperties();
+  var ssId = props.getProperty('GETSLOTS_SS_ID') || props.getProperty('ERROR_LOG_SS_ID')
+    || (typeof CONFIG !== 'undefined' && CONFIG.INTEGRATED_SHEET_SS_ID)
+    || null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
   if (!ss) return Core.jsonResponse({ error: '查詢失敗', details: '無法取得試算表（Web App 請設定指令碼屬性 GETSLOTS_SS_ID 或 ERROR_LOG_SS_ID）' });
 
   const botId = e.parameter.botId;

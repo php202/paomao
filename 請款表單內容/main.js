@@ -1,3 +1,5 @@
+/** 2026請款表試算表 ID（與 EXTERNAL_SS_ID 同） */
+const PAYMENT_SS_ID = '17hX7CjeDj2xdKBIt9TKG6iJF5lB38uXwj2kdhb4oIQE';
 
 /**
  * 在試算表開啟時建立自訂選單
@@ -20,7 +22,7 @@ function onOpen() {
  * case4 免費/自行匯款	不用做事
 */
 function main() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(PAYMENT_SS_ID);
   const sheet = ss.getSheetByName('2026/ACH紀錄'); // 2026/ACH紀錄
   const rows = sheet.getDataRange().getValues(); // 取得所有資料 (二維陣列)
   // 1. 取得店家銀行帳號對應表
@@ -191,7 +193,7 @@ function issueInvoiceViaCoreApi(storeInfo, odooNumber, buyType, items) {
  * 一律透過 Core API 拿取明細與開票（需設定 PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY）。
  */
 function issueInvoice() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(PAYMENT_SS_ID);
   const sheet = ss.getSheetByName('2026/ACH紀錄');
   if (!sheet) {
     SpreadsheetApp.getUi().alert('找不到工作表「2026/ACH紀錄」。');

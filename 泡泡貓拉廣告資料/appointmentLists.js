@@ -1,5 +1,9 @@
+/** 預約清單（動態）試算表 ID */
+const AD_SS_ID = '19NWuiZ1hI0pC6_eMxsKvQlzcf5aGrs4OJgtOTJANjjQ';
+
 function appointmentLists() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("預約清單（動態）");
+  const ss = SpreadsheetApp.openById(AD_SS_ID);
+  const sheet = ss.getSheetByName("預約清單（動態）");
   if (!sheet) throw new Error("找不到工作表：預約清單（動態）");
 
   const startDate = sheet.getRange('A2').getValue();

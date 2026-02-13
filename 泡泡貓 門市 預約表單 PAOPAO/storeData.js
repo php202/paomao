@@ -1,9 +1,12 @@
 // ==========================================
 // [StoreData.gs] 儲值金請款報表 (安全分批版)
 // ==========================================
+/** 門市預約表單試算表 ID */
+const PAOPAO_STORE_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
 
 function storeData() {
-  const reSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("儲值金請款test");
+  const ss = SpreadsheetApp.openById(PAOPAO_STORE_SS_ID);
+  const reSheet = ss.getSheetByName("儲值金請款test");
   if (!reSheet) throw new Error('找不到工作表「儲值金請款」');
 
   // 1. 取得 Token 與 店家列表

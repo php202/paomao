@@ -1,3 +1,6 @@
+/** 門市預約表單試算表 ID */
+const PAOPAO_STORE_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
+
 function gogoshopStocksReport() {
   // 1. 設定基礎網址 (不含 page 參數)
   var baseUrl = "https://my.gogoshop.io/Stocks/report";
@@ -76,12 +79,10 @@ function gogoshopStocksReport() {
 
   // === 寫入 Google Sheet ===
   if (allData.length > 0) {
-    // 【重要提醒】請確認你的試算表裡真的有一個分頁叫做 "gogoshop暫存"，否則這裡會報錯
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("gogoshop暫存");
-    
+    var ss = SpreadsheetApp.openById(PAOPAO_STORE_SS_ID);
+    var sheet = ss.getSheetByName("gogoshop暫存");
     if (!sheet) {
-      // 如果找不到該分頁，自動建立一個新的
-      sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet("gogoshop暫存");
+      sheet = ss.insertSheet("gogoshop暫存");
     }
 
     sheet.clear(); 
@@ -123,8 +124,7 @@ function parseTableFromHtml(html) {
  * 從「安全庫存」工作表上的 P1 儲存格取得數值。
  */
 function getP1() {
-  // 取得目前的試算表
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = SpreadsheetApp.openById(PAOPAO_STORE_SS_ID);
   const sheet = spreadsheet.getSheetByName("安全庫存");
   if (sheet) {
     const range = sheet.getRange("P1"); 

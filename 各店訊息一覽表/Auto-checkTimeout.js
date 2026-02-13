@@ -3,7 +3,9 @@
 // 觸發：執行 Triggers.js 的 setupAllTriggers 會建立時間驅動；或手動加觸發 → 函式選 checkTimeoutPending。
 // ==========================================
 function checkTimeoutPending() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
+  if (!ss) return;
   const sheet = ss.getSheetByName('準客挽留清單');
   if (!sheet) return;
 
@@ -66,7 +68,9 @@ function checkTimeoutPending() {
 
 // 用 BotID 快速查 Token
 function getTokenByBotId_(targetBotId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
+  if (!ss) return null;
   const sheet = ss.getSheetByName('店家基本資料'); 
   const data = sheet.getDataRange().getValues();
   

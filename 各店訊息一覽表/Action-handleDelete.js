@@ -1,6 +1,7 @@
 function handleDelete(e) {
-  // 1. 確保在函式內取得試算表物件 (避免跨檔案變數讀不到的問題)
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  const ss = ssId ? SpreadsheetApp.openById(ssId) : null;
+  if (!ss) return Core.jsonResponse({error: '無法取得試算表'});
   // 2. 驗證列號 (防呆)
   const rowToUpdate = parseInt(e.parameter.row);
   if (isNaN(rowToUpdate) || rowToUpdate <= 1) {

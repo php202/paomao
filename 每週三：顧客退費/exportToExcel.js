@@ -1,3 +1,6 @@
+/** 顧客退費（回覆）表單試算表 ID */
+const REFUND_SS_ID = '1b2-ZFkyKabVeQxpNSgFdrsAkPzDb35vNXDNQYR75XKA';
+
 /**
  * 篩選資料、整理欄位，並匯出為 Excel 檔案。
  * 
@@ -9,7 +12,7 @@
  * 5. 刪除暫存工作表。
  */
 function exportToExcelWithFilter() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(REFUND_SS_ID);
   const sourceSheetName = '表單回應 2'; // 您的工作表名稱
   const sourceSheet = ss.getSheetByName(sourceSheetName);
   const TODAY_YMD = getTransferDate(new Date());

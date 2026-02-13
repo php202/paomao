@@ -1,5 +1,8 @@
+/** 2026請款表試算表 ID */
+const PAYMENT_SS_ID = '17hX7CjeDj2xdKBIt9TKG6iJF5lB38uXwj2kdhb4oIQE';
+
 function payToReceipt() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(PAYMENT_SS_ID);
   const sourceSheetName = '2026請款表'; // 您的工作表名稱
   const sourceSheet = ss.getSheetByName(sourceSheetName);
 

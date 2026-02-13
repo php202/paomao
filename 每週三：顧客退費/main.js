@@ -2,6 +2,9 @@
  * 每週三：顧客退費 - 本專案改為使用 Core API，不再依賴 Core 程式庫。
  * 指令碼屬性：PAO_CAT_CORE_API_URL、PAO_CAT_SECRET_KEY
  */
+/** 顧客退費（回覆）表單試算表 ID */
+const REFUND_SS_ID = '1b2-ZFkyKabVeQxpNSgFdrsAkPzDb35vNXDNQYR75XKA';
+
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('🛠 帳務工具')
@@ -46,7 +49,8 @@ function normalizePhone(phone) {
 }
 
 function refund() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('表單回應 2');
+  const ss = SpreadsheetApp.openById(REFUND_SS_ID);
+  const sheet = ss.getSheetByName('表單回應 2');
   const data = getPhonesFromSheet();
   const refundList = data.list || [];
   const returnedCol = data.returnedCol || 17;
@@ -101,7 +105,8 @@ function refund() {
 }
 
 function getPhonesFromSheet() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('表單回應 2');
+  const ss = SpreadsheetApp.openById(REFUND_SS_ID);
+  const sheet = ss.getSheetByName('表單回應 2');
   if (!sheet) {
     Logger.log('找不到工作表：表單回應 2');
     return { list: [], returnedCol: 17 };
@@ -196,9 +201,8 @@ function getTransferDate(rowTransferDate) {
 }
 
 function cleanupTempSheets() {
-  const id = '1b2-ZFkyKabVeQxpNSgFdrsAkPzDb35vNXDNQYR75XKA';
   const delName = '退費匯款資料_Export_';
-  const ss = SpreadsheetApp.openById(id);
+  const ss = SpreadsheetApp.openById(REFUND_SS_ID);
   const sheets = ss.getSheets();
   let count = 0;
   sheets.forEach(function(sheet) {

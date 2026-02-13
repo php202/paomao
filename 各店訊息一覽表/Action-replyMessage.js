@@ -10,10 +10,8 @@ function replyMessage(e) {
   if (!botId) return Core.jsonResponse({ status: "error", message: "請提供 botId" });
   if (!replyToken) return Core.jsonResponse({ status: "error", message: "請提供 replyToken（此則訊息可能已過期）" });
 
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss && typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID) {
-    ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
-  }
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
   if (!ss) return Core.jsonResponse({ status: "error", message: "無法取得試算表" });
 
   var configSheet = ss.getSheetByName("店家基本資料");

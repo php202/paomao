@@ -16,7 +16,10 @@ function totalMoney() {
   const stores = data.data.performanceData;
   console.log(stores)
 
-  const writeSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("門市業績狀態");
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
+  if (!ss) throw new Error("無法取得試算表");
+  const writeSheet = ss.getSheetByName("門市業績狀態");
   writeSheet.clearContents();
   const months = stores[0].series.map(item => item.name);
   const header = ["店名", ...months];

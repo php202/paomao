@@ -1,3 +1,6 @@
+/** 門市預約表單試算表 ID */
+const PAOPAO_STORE_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
+
 function compareSalesData() {
   // ================= 設定區 =================
   var myCookie = getP1();
@@ -72,8 +75,9 @@ function compareSalesData() {
 
   // === 步驟 4: 寫入 Google Sheet ===
   var sheetName = "3M vs 6M 銷售比較";
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
-  if (!sheet) { sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet(sheetName); }
+  var ss = SpreadsheetApp.openById(PAOPAO_STORE_SS_ID);
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) { sheet = ss.insertSheet(sheetName); }
   
   sheet.clear();
   

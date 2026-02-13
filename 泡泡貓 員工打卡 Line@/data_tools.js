@@ -71,8 +71,8 @@ function formatManagedStores() {
 
 // 取得 固定 key 
 function getLinkKey() {
-  // 找出負責的 人員
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("網頁列表");
+  const ss = SpreadsheetApp.openById(LINE_STAFF_SS_ID);
+  const sheet = ss.getSheetByName("網頁列表");
   const linkKey = sheet.getDataRange().getValues();
   const linkMap = new Map();
   linkKey.slice(1).forEach(([name, link]) => {
@@ -104,7 +104,8 @@ function createQuickReplyItemUrl(label, url) {
 
 // 算距離
 function checkLocation(lat, lon) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("公司列表");
+  const ss = SpreadsheetApp.openById(LINE_STAFF_SS_ID);
+  const sheet = ss.getSheetByName("公司列表");
   const stores = sheet.getDataRange().getValues();
   const storeMap = stores.slice(1).filter(i => i[3]).map((item) => {
     return {
@@ -135,8 +136,8 @@ function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
 }
 
 async function cleanUpSheet(replyToken, userId) {
-  // if (userId !== 'Ud77845386e2e6b3ceb79331978289809') replyToUser(replyToken, `請問要刪什麼？`)
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("員工打卡紀錄");
+  const ss = SpreadsheetApp.openById(LINE_STAFF_SS_ID);
+  const sheet = ss.getSheetByName("員工打卡紀錄");
   let = num = 0
   const data = sheet.getDataRange().getValues();
   for (var i = data.length - 1; i >= 0; i--) {  // 倒序刪除，避免索引錯亂

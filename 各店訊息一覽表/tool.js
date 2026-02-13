@@ -1,5 +1,7 @@
 function getStoreConfig(botId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
+  if (!ss) return null;
   const configSheet = ss.getSheetByName('店家基本資料');
   
   // 抓取整張表的資料
@@ -30,7 +32,9 @@ function getStoreConfig(botId) {
 
 // [核心] 找店家設定 (已修復 sayId 漏抓問題)
 function findStoreConfig(userId, destinationId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
+  if (!ss) return null;
   const sheet = ss.getSheetByName('店家基本資料'); 
   const data = sheet.getDataRange().getValues();
   

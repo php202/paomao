@@ -7,7 +7,7 @@ function archiveLastMonthAttendance() {
   }
 
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = SpreadsheetApp.openById(LINE_STAFF_SS_ID);
     const SRC_NAME = "員工打卡紀錄";
     const DST_NAME = "打卡紀錄封存";
     const TIME_ZONE = ss.getSpreadsheetTimeZone(); // 跟隨試算表的時區設定

@@ -4,7 +4,9 @@ function getList(e) {
   const botId = e.parameter.botId; 
   if (!botId) return Core.jsonResponse({error: 'No botId'});
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  const ss = ssId ? SpreadsheetApp.openById(ssId) : null;
+  if (!ss) return Core.jsonResponse({error: '無法取得試算表'});
   
   // ----------------------------------------------------
   // 第一步：先確認這個 Bot ID 是哪一家店？

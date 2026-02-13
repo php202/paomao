@@ -25,13 +25,10 @@ function getWaitlistPushPrefix(waitlistDateStr, timeStr) {
   return "真是抱歉今天的候補（" + part + "）沒有補位上，提供近三天，還有下 1–2 週同一時間的可預約時段：\n\n";
 }
 
-/** 取得試算表（Web App 時用 CONFIG.INTEGRATED_SHEET_SS_ID） */
+/** 取得試算表（一律 openById） */
 function getWaitlistSpreadsheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss && typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID) {
-    ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
-  }
-  return ss;
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  return ssId ? SpreadsheetApp.openById(ssId) : null;
 }
 
 /** 取得或建立「候補清單」工作表；第 1 列為表頭 */

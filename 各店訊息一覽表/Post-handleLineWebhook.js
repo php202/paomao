@@ -74,12 +74,10 @@ function appendErrorLog(message, context) {
 // ==========================================
 function handleLineWebhook(data) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) {
-      var id = PropertiesService.getScriptProperties().getProperty("ERROR_LOG_SS_ID");
-      if (id) ss = SpreadsheetApp.openById(id);
-      if (!ss && typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID) ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
-    }
+    var ssId = PropertiesService.getScriptProperties().getProperty("ERROR_LOG_SS_ID")
+      || (typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID)
+      || null;
+    var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
     if (!ss) {
       appendErrorLog("handleLineWebhook: 無法取得試算表（Web App 請設定指令碼屬性 ERROR_LOG_SS_ID）", "LINE webhook");
       return ContentService.createTextOutput("OK");
@@ -181,8 +179,8 @@ function handleLineWebhook(data) {
 // I 欄 isReply 只控制「查詢空位」是否用 reply token 傳給客人；查詢空位、寫入清單照常執行
 // ==========================================
 function addToRetentionList(userId, triggerMsg, token, context, sayId, replyToken, botDestinationId, storeInfo) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss && typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID) ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
   if (!ss) return;
   let sheet = ss.getSheetByName(RETENTION_SHEET_NAME);
   if (!sheet) {
@@ -263,7 +261,9 @@ function addToRetentionList(userId, triggerMsg, token, context, sayId, replyToke
 
 // 標記為已互動
 function markAsReplied(userId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
+  if (!ss) return;
   const sheet = ss.getSheetByName(RETENTION_SHEET_NAME);
   if (!sheet) return; 
   
@@ -283,8 +283,8 @@ function markAsReplied(userId) {
  * 每 10 天執行一次（由 Triggers 排程呼叫，內部依 ScriptProperties 判斷間隔）。
  */
 function cleanupRetentionList() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss && typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID) ss = SpreadsheetApp.openById(CONFIG.INTEGRATED_SHEET_SS_ID);
+  var ssId = typeof CONFIG !== "undefined" && CONFIG.INTEGRATED_SHEET_SS_ID ? CONFIG.INTEGRATED_SHEET_SS_ID : null;
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : null;
   if (!ss) return;
   var sheet = ss.getSheetByName(RETENTION_SHEET_NAME);
   if (!sheet) return;

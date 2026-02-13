@@ -1,3 +1,6 @@
+/** 門市預約表單試算表 ID（與門市資料同） */
+const PAOPAO_STORE_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
+
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('🛠 帳務工具')
@@ -162,7 +165,7 @@ function handleDirectStoreReplyStatus(event, paopaoToken) {
 // 子函式 1: 處理 Gogoshop Cookie 更新
 // ==========================================
 function handleUpdateCookie(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(PAOPAO_STORE_SS_ID);
   const sheet = ss.getSheetByName('安全庫存');
   if (!sheet) return Core.jsonResponse({ error: "Sheet '安全庫存' not found" });
   
@@ -221,7 +224,7 @@ function handleLineWebhook(data) {
 
   // --- 批次寫入 ---
   if (logData.length > 0) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();  
+    const ss = SpreadsheetApp.openById(PAOPAO_STORE_SS_ID);
     let logSheet = ss.getSheetByName('訊息一覽');
     if (!logSheet) {
       logSheet = ss.insertSheet('訊息一覽');
@@ -237,7 +240,7 @@ function handleLineWebhook(data) {
 // 功能 2: 更新 Token
 // ==========================================
 function handleUpdateToken(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(PAOPAO_STORE_SS_ID);
   const sheet = ss.getSheetByName('預約表單');
   if (!sheet) return Core.jsonResponse({ error: "Sheet '預約表單' not found" });
   sheet.getRange('C2:D2').setValues([[data.token, new Date()]]);
