@@ -18,7 +18,7 @@ var CoreApi = (function () {
     var text = res.getContentText();
     var code = res.getResponseCode();
     if (code !== 200) {
-      if (code === 404) throw new Error("Core API 404：請在本專案指令碼屬性將 PAO_CAT_CORE_API_URL 設為 https://script.google.com/macros/s/AKfycbxuCU1mQVUiZ-sF0eAJr5ELc0yYaOLi9F1bj7Y2qga1zh1KqzT3c8NjZz6o6-ok-9U21w/exec（結尾 /exec，勿用測試部署）。");
+      if (code === 404) throw new Error("Core API 404：請在本專案指令碼屬性將 PAO_CAT_CORE_API_URL 設為 https://script.google.com/macros/s/AKfycby5ibTcUxvPD-Xj1-lOHOJ5oI27CbyyaHv2K3cvNd1PwMiPvwGCpjlzi6UbW4fwip2UaA/exec（結尾 /exec，勿用測試部署）。");
       throw new Error("Core API 錯誤: " + code + " " + text.slice(0, 150));
     }
     return text.trim();

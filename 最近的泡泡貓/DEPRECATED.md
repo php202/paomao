@@ -6,7 +6,7 @@
 
 - **原功能**：提供門市列表 JSON API（`doGet` 回傳 `[{ name, address, lineUrl, lat, lng }, ...]`）
 - **整合後**：改由 PaoMao_Core 的 `action=storeList` 提供
-- **新 API 網址**：`https://script.google.com/macros/s/AKfycbxuCU1mQVUiZ-sF0eAJr5ELc0yYaOLi9F1bj7Y2qga1zh1KqzT3c8NjZz6o6-ok-9U21w/exec?action=storeList`
+- **新 API 網址**：`https://script.google.com/macros/s/AKfycby5ibTcUxvPD-Xj1-lOHOJ5oI27CbyyaHv2K3cvNd1PwMiPvwGCpjlzi6UbW4fwip2UaA/exec?action=storeList`
 
 ## 呼叫端更新
 

@@ -56,8 +56,8 @@
 - **PAO_CAT_CORE_API_URL 必須是「網路應用程式」部署的網址**（PaoMao_Core 部署→管理部署→類型為「網路應用程式」那筆，結尾 /exec）。
 - **一律**使用 `clasp deploy -i <既有部署ID> -d '...'` 更新既有「**網路應用程式**」部署。更新後在「管理部署」仍是**同一筆**（同一 ID），**版本號**（如 @17、@18）會遞增，不會多出一筆新部署。
 - **固定 Core API 部署（請勿更換）**：以下即為**目前在線**的網路應用程式部署；執行 `npm run ship` 會以本機**目前程式碼**更新此部署（URL 不變）。
-  - **Deployment ID**：`AKfycbxuCU1mQVUiZ-sF0eAJr5ELc0yYaOLi9F1bj7Y2qga1zh1KqzT3c8NjZz6o6-ok-9U21w`
-  - **Web App URL**：`https://script.google.com/macros/s/AKfycbxuCU1mQVUiZ-sF0eAJr5ELc0yYaOLi9F1bj7Y2qga1zh1KqzT3c8NjZz6o6-ok-9U21w/exec`
+  - **Deployment ID**：`AKfycby5ibTcUxvPD-Xj1-lOHOJ5oI27CbyyaHv2K3cvNd1PwMiPvwGCpjlzi6UbW4fwip2UaA`
+  - **Web App URL**：`https://script.google.com/macros/s/AKfycby5ibTcUxvPD-Xj1-lOHOJ5oI27CbyyaHv2K3cvNd1PwMiPvwGCpjlzi6UbW4fwip2UaA/exec`
   - 各呼叫端（各店訊息一覽表、泡泡貓 員工打卡 Line@ 等）的指令碼屬性 **PAO_CAT_CORE_API_URL** 請設為上述 URL，不要再更換。
 - **若 deploy 後仍看不到「網路應用程式」那筆更新**：表示 `-i` 填成了其他類型那筆的 ID。請在 **部署 → 管理部署** 中，找**類型＝網路應用程式**、**URL 結尾 /exec** 的那一筆，複製其**部署 ID**，貼到 `gas/PaoMao_Core/package.json` 的 `deploy` 腳本（`-i` 後面），並與本段「固定 Core API 部署」的 Deployment ID 一致。`scripts/ship.js` 會檢查兩者一致才允許 ship。
 
