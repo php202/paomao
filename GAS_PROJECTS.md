@@ -11,7 +11,6 @@
 | 泡泡貓 員工打卡 Line@ | 泡泡貓 員工打卡 Line@ | `17ZpY-TsP38RFQbvmiX7TLsYjIw97tw5dR7iQSJ0FD1Cq1Ys5R-URSvzv` |
 | 泡泡貓 門市 預約表單 PAOPAO | 泡泡貓 門市 預約表單 PAOPAO | `1LusFs1Y98mAbOvKRCHDZlelgnTPyspEEroiNd67n2hO7ayuK5_QBBLTu` |
 | 泡泡貓拉廣告資料 | 泡泡貓拉廣告資料 | `1gcLehQYH5qzceBuECh08TyAKfha5XxJ9s3Fv8ep3iiwmypz8GuJv7r3k` |
-| 最近的泡泡貓 | 最近的泡泡貓 | `1bJ0qN57wBBLRLM24HU3P_Ni-DbhI7AKRumzRZBj7neTFK0UzswDlswaB` |
 | 請款表單內容 | 請款表單內容 | `10tL-Fvu8Zn17JallpciTfgwUXmBZL-42GQAnQOJi7gy1Dc8xrcsDrrP4` |
 
 - 各專案資料夾內的 `.clasp.json` 的 `scriptId` 應與上表一致，`clasp push` 才會推到正確的 Apps Script 專案。

@@ -18,10 +18,14 @@ const { execSync } = require('child_process');
 // gas 根目錄（本檔所在目錄）
 const GAS_ROOT = path.resolve(__dirname);
 
+// 已刪除或整合的專案，push-all 略過（若資料夾被還原也不 push）
+const EXCLUDE_PROJECTS = ['最近的泡泡貓'];
+
 // 取得 gas 底下所有有 .clasp.json 的子目錄
 function getClaspProjectDirs() {
   const names = fs.readdirSync(GAS_ROOT);
   return names.filter((name) => {
+    if (EXCLUDE_PROJECTS.includes(name)) return false;
     const dirPath = path.join(GAS_ROOT, name);
     if (!fs.statSync(dirPath).isDirectory()) return false;
     return fs.existsSync(path.join(dirPath, '.clasp.json'));

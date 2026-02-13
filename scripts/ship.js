@@ -46,7 +46,10 @@ if (fs.existsSync(coreWebAppPath)) {
   }
 }
 
+const EXCLUDE_PROJECTS = ['最近的泡泡貓'];
+
 let dirs = fs.readdirSync(gasRoot).filter((name) => {
+  if (EXCLUDE_PROJECTS.includes(name)) return false;
   const full = path.join(gasRoot, name);
   return fs.statSync(full).isDirectory() && fs.existsSync(path.join(full, '.clasp.json'));
 });
@@ -56,6 +59,7 @@ if (filterNames.length > 0) {
   dirs = dirs.filter((d) => filterNames.includes(d));
   if (dirs.length === 0) {
     console.error('未找到符合的專案。可用的專案：', fs.readdirSync(gasRoot).filter((name) => {
+      if (EXCLUDE_PROJECTS.includes(name)) return false;
       const full = path.join(gasRoot, name);
       return fs.statSync(full).isDirectory() && fs.existsSync(path.join(full, '.clasp.json'));
     }).join(', '));

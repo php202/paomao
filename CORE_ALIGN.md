@@ -21,7 +21,6 @@
 |------|------|------|--------|
 | 日報表 產出 | main.js | outputJSON(data) 自己建 ContentService.createTextOutput(JSON.stringify...) | outputJSON(data) 改為呼叫 jsonResponse(data)（Core LineBot.jsonResponse） |
 | 日報表 產出 | BE-HandleCheckIn.js | responseJSON(data) 自己建 ContentService.createTextOutput(JSON.stringify...) | responseJSON(data) 改為呼叫 jsonResponse(data) |
-| 最近的泡泡貓 | 程式碼.js | doGet 內自己建 ContentService.createTextOutput(JSON.stringify(data)) | doGet 改為 return jsonResponse(getStoreData()) |
 | 請款表單內容 | login.js | 多處 ContentService.createTextOutput(JSON.stringify(...)) | 改為 jsonResponse({ status, message }) |
 | 請款表單內容 | Post-handleLineWebhook.js | return ContentService.createTextOutput(JSON.stringify({status:'ok'}))... | 改為 return jsonResponse({ status: 'ok' }) |
 

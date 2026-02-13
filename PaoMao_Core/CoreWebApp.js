@@ -15,7 +15,7 @@
  *
  * 【doGet】查詢參數：key, action[, startDate, endDate, storeId, start, end, date]
  * - key=密鑰（必填，以下 action 除外）
- * - action=storeList：門市列表 JSON（公開，無需 key；整合自「最近的泡泡貓」）
+ * - action=storeList：門市列表 JSON（公開，無需 key）
  * - action=token | getStoresInfo | fetchReservationData | oldNewA | fetchTodayReservationData | lastMonthTipsReport | fetchDailyIncome
  * - fetchReservationData / oldNewA：startDate, endDate, storeId
  * - fetchTodayReservationData：start, end, storeId
@@ -830,7 +830,7 @@ function actionNearHit(params) {
 }
 
 /**
- * 門市列表 API（整合自「最近的泡泡貓」專案）
+ * 門市列表 API
  * GET: action=storeList
  * 回傳：JSON 陣列 [{ name, address, lineUrl, lat, lng }, ...]
  */

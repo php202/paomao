@@ -10,7 +10,10 @@ const { execSync } = require('child_process');
 
 const gasRoot = path.resolve(__dirname, '..');
 
+const EXCLUDE_PROJECTS = ['最近的泡泡貓'];
+
 const dirs = fs.readdirSync(gasRoot).filter((name) => {
+  if (EXCLUDE_PROJECTS.includes(name)) return false;
   const full = path.join(gasRoot, name);
   return fs.statSync(full).isDirectory() && fs.existsSync(path.join(full, '.clasp.json'));
 });

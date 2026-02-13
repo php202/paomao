@@ -1,6 +1,6 @@
 /**
  * 泡泡貓相關 GAS 專案（gas/ 資料夾）：PaoMao_Core、各店訊息一覽表、日報表 產出、請款表單內容、
- * 每週三：顧客退費、泡泡貓 門市 預約表單 PAOPAO、泡泡貓拉廣告資料、泡泡貓 員工打卡 Line@、最近的泡泡貓
+ * 每週三：顧客退費、泡泡貓 門市 預約表單 PAOPAO、泡泡貓拉廣告資料、泡泡貓 員工打卡 Line@
  */
 const LINE_TOKEN_PAOPAO = 'cpJinkc6qjthP9/685wxeI114mz/TPYieKdtabf0KIkuzpf1mGLFIRKSbVoCD7QAtIf7pBSJrI8I3x7Pk2Z5khTFbCgsaos749+4MjrIFoW5+90ppxSguaWlvYGGoLHGgMHzmJejEHWIlggnfMBqKQdB04t89/1O/w1cDnyilFU='; 
 const LINE_TOKEN_PAOSTAFF = 'KoX6cmTb5LECmrNptXRMQuR4jD57UxL5PujbE1tSPeJriyLvsTG5gLEW+2qx8e6NfexsBWIYqzOrUDYBznVNo2SGtm6Qu3ahAT9qERAUwViRY0ZI8okZlRiqUVVqe3OjB0bKl3+qhF5ZeUkxnBJRoQdB04t89/1O/w1cDnyilFU='

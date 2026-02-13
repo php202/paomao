@@ -50,7 +50,6 @@
 | 泡泡貓 門市 預約表單 PAOPAO | getCoreConfig, onOpen, main, payToReceipt, payToEmployee, achP01, exportToExcelWithFilter, cleanupTempSheets | ✅ 皆存在 |
 | 泡泡貓 員工打卡 Line@ | getCoreConfig, onOpen, runAccNeed | ✅ 皆存在 |
 | 泡泡貓拉廣告資料 | getCoreConfig, onOpen, getPhonesFromSheet, cleanupTempSheets, exportToExcelWithFilter, refund | ✅ 皆存在 |
-| 最近的泡泡貓 | getCoreConfig, doGet, getStoreData, errorData | ✅ 皆存在（皆在 程式碼.js） |
 | 請款表單內容 | getCoreConfig, doPost, doGet, getSlots, totalMoney, getList, checkMember, handleDelete, getStoreConfig, findStoreConfig | ✅ 皆存在 |
 
 **結論：** 依目前程式碼，不需要為了「通過 runDebugTest」而改 DebugTest.js 或補函式；只要 push 成功並能執行 runDebugTest，預期檢查都會通過。
@@ -92,10 +91,10 @@
 
 ## 4. 路徑有空格或特殊字元時
 
-在終端機對 **最近的泡泡貓**、**泡泡貓 員工打卡 Line@** 等資料夾下指令時，路徑請用引號，例如：
+在終端機對 **泡泡貓 員工打卡 Line@** 等含空格或特殊字元的資料夾下指令時，路徑請用引號，例如：
 
 ```bash
-cd "/Users/yutsunghan/node_express/gas/最近的泡泡貓"
+cd "/Users/yutsunghan/node_express/gas/泡泡貓 員工打卡 Line@"
 clasp push
 clasp run runDebugTest
 ```

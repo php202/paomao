@@ -28,7 +28,6 @@
 | 泡泡貓 門市 預約表單 PAOPAO | 門市預約表單 |
 | 泡泡貓 員工打卡 Line@ | 員工打卡 |
 | 泡泡貓拉廣告資料 | 拉廣告資料 |
-| 最近的泡泡貓 | 最近的泡泡貓 |
 | 請款表單內容 | 請款表單 |
 
 每個專案目錄內：`clasp pull` 拉遠端；`npm run ship` = push + 以既有部署 ID 更新部署（不變更網址）。根目錄 **gas** 的 `npm run ship` 會對所有子專案依序執行該專案的 `npm run ship`（push + deploy）。各專案須在 package.json 填寫既有部署 ID，見 **DEPLOY.md**。  

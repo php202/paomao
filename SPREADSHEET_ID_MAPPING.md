@@ -70,7 +70,6 @@
 | **泡泡貓拉廣告資料** | appointmentLists.js | 2 | getActiveSpreadsheet().getSheetByName("預約清單（動態）") | 同上 |
 | **泡泡貓 員工打卡 Line@** | data_tools.js | 75, 107, 139 | getActiveSpreadsheet（網頁列表、公司列表、員工打卡紀錄） | `LINE_STAFF_SS_ID` (`1GH2XbihFIY0AX8SMF9Tk6igrVKPpA_vMJVlkDkJjpe4`) |
 | **泡泡貓 員工打卡 Line@** | Archive_last_month.js | 10 | getActiveSpreadsheet | `LINE_STAFF_SS_ID` |
-| **最近的泡泡貓** | 程式碼.js | 9 | openById（已用） | `1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE` |
 
 ---
 
