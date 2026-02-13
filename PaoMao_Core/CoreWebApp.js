@@ -14,7 +14,8 @@
  * - PAO_CAT_SECRET_KEY：與 Core 相同的密鑰
  *
  * 【doGet】查詢參數：key, action[, startDate, endDate, storeId, start, end, date]
- * - key=密鑰（必填）
+ * - key=密鑰（必填，以下 action 除外）
+ * - action=storeList：門市列表 JSON（公開，無需 key；整合自「最近的泡泡貓」）
  * - action=token | getStoresInfo | fetchReservationData | oldNewA | fetchTodayReservationData | lastMonthTipsReport | fetchDailyIncome
  * - fetchReservationData / oldNewA：startDate, endDate, storeId
  * - fetchTodayReservationData：start, end, storeId
@@ -52,6 +53,9 @@ function doGet(e) {
   }
   if (action === "getReportByDate") {
     return actionGetReportByDate(params);
+  }
+  if (action === "storeList") {
+    return actionStoreList();
   }
   return handleRequest(params, "GET");
 }
@@ -823,6 +827,70 @@ function actionNearHit(params) {
   }
   return ContentService.createTextOutput(cb + "(" + JSON.stringify({ targetUrl: targetUrl }) + ")")
     .setMimeType(ContentService.MimeType.JAVASCRIPT);
+}
+
+/**
+ * 門市列表 API（整合自「最近的泡泡貓」專案）
+ * GET: action=storeList
+ * 回傳：JSON 陣列 [{ name, address, lineUrl, lat, lng }, ...]
+ */
+function actionStoreList() {
+  var data = getStoreListData();
+  return jsonResponse(data);
+}
+
+function getStoreListData() {
+  try {
+    var ssId = (typeof LINE_HQ_SS_ID !== "undefined") ? LINE_HQ_SS_ID : "1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE";
+    var ss = SpreadsheetApp.openById(ssId);
+    var sheet = ss.getSheetByName("門市列表");
+    if (!sheet) return storeListError("找不到工作表");
+    var data = sheet.getDataRange().getValues();
+    if (data.length < 2) return storeListError("試算表無資料");
+    var headers = data[0].map(function(h) { return String(h); });
+    var nameIdx = headers.findIndex(function(h) { return h.indexOf("店名") >= 0; });
+    var addrIdx = headers.findIndex(function(h) { return h.indexOf("地址") >= 0; });
+    var lineIdx = headers.findIndex(function(h) { return h.indexOf("line官方") >= 0 || h.indexOf("LINE官方") >= 0; });
+    var locIdx = headers.findIndex(function(h) { return h.indexOf("經度") >= 0 || h.indexOf("緯度") >= 0; });
+    if (nameIdx === -1) nameIdx = 0;
+    if (addrIdx === -1) addrIdx = 1;
+    if (locIdx === -1) locIdx = 39;
+    var cleanStores = [];
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      var rawCoords = row[locIdx];
+      var lat = 0, lng = 0;
+      var hasValidCoord = false;
+      if (rawCoords && typeof rawCoords === "string" && rawCoords.indexOf(",") >= 0) {
+        var parts = rawCoords.split(",");
+        lat = parseFloat(parts[0]);
+        lng = parseFloat(parts[1]);
+        if (!isNaN(lat) && !isNaN(lng) && lat !== 0) hasValidCoord = true;
+      }
+      var hasValidLine = false;
+      var safeLine = "";
+      if (lineIdx !== -1 && row[lineIdx]) {
+        var rawLine = String(row[lineIdx]).trim();
+        if (rawLine.length > 5 && rawLine !== "無" && rawLine !== "-" &&
+            rawLine.toLowerCase() !== "null" && rawLine.toLowerCase() !== "none") {
+          hasValidLine = true;
+          safeLine = rawLine;
+        }
+      }
+      if (hasValidCoord && hasValidLine) {
+        var safeName = (row[nameIdx]) ? String(row[nameIdx]).replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "") : "店名讀取中";
+        var safeAddr = (row[addrIdx]) ? String(row[addrIdx]).replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "") : "地址讀取中";
+        cleanStores.push({ name: safeName, address: safeAddr, lineUrl: safeLine, lat: lat, lng: lng });
+      }
+    }
+    return cleanStores;
+  } catch (e) {
+    return storeListError("後端錯誤: " + e.toString());
+  }
+}
+
+function storeListError(msg) {
+  return [{ name: msg, address: "請檢查後端", lineUrl: "", lat: 0, lng: 0 }];
 }
 
 /**

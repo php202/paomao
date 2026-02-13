@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "push": "clasp push --force",
-    "deploy": "clasp deploy -i AKfycbz4aNPS6AACT4o0nrLG_C32W6qZiMOMBADO2qRztqZ6YY_BmtrdqKdztx-15YdDvt4o -d 'Updated'",
-    "ship": "npm run push && npm run deploy",
+    "deploy": "echo '[請款表單內容] 無 Web 部署，僅 push'",
+    "ship": "npm run push",
     "pull": "echo '請勿 pull；以本機為準，只做 npm run push 或 npm run ship。' && exit 1"
   }
 }

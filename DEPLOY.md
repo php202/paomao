@@ -80,6 +80,14 @@
 
 實際請求網址已記在員工打卡專案的**執行紀錄**（Apps Script 編輯器 → 執行作業），可對照確認。
 
+## 門市列表 API（storeList，整合自「最近的泡泡貓」）
+
+- **原專案**：`最近的泡泡貓` 曾單獨提供門市列表 JSON API。
+- **整合後**：改由 PaoMao_Core 的 `action=storeList` 提供（公開，無需 key）。
+- **API 網址**：`<Core API URL>?action=storeList`（即上述 Web App URL + `?action=storeList`）
+- **呼叫端**：`gas/PaoMao_Core/near-redirect-snippet.html` 已改為使用 Core API。
+- **最近的泡泡貓**：已封存（見該目錄 `DEPRECATED.md`），可從 ship 流程排除或保留作參考。
+
 ## 根目錄 gas 的 ship
 
 在 **gas** 根目錄執行 `npm run ship` 會對**所有**子專案依序執行該專案的 `npm run ship`，即 **push + 以既有部署 ID deploy**（不建立新部署、不變更網址）。  

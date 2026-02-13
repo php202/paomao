@@ -127,8 +127,9 @@
   // ②【原本的門市查詢功能】—— 沒有 code 的情況才會走到這裡
   if (hasNearCode) { /* 有 code 時不跑底下，等 JSONP 導向 */ } else {
 
-  // 門市資料 API（與 CORE_NEAR_URL 不同！此 API 回傳門市列表 JSON）
-  const API_URL = "https://script.google.com/macros/s/AKfycbwULtVX2PN_vmf_OwhrZnB37jSDhplDniPFSJvoBxZ3UMNyckDeMkT2pC-Fl3Qh1eZ1/exec"; 
+  // 門市資料 API（已整合至 Core：action=storeList；使用 Core API 部署，與 ship 同步更新）
+  const CORE_API_URL = "https://script.google.com/macros/s/AKfycbxuCU1mQVUiZ-sF0eAJr5ELc0yYaOLi9F1bj7Y2qga1zh1KqzT3c8NjZz6o6-ok-9U21w/exec";
+  const API_URL = CORE_API_URL + "?action=storeList";
   
   var allStores = [];
   var btn = document.getElementById('main-btn');
@@ -159,7 +160,7 @@
       showError();
     }, FETCH_TIMEOUT_MS);
 
-    fetch(API_URL + "?t=" + new Date().getTime(), { signal: signal })
+    fetch(API_URL + "&t=" + new Date().getTime(), { signal: signal })
       .then(function(res) {
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "push": "clasp push --force",
-    "deploy": "clasp deploy -i AKfycbzq3BnJrZlf0TUrhmSv2W4tfSQK0tSR_ENZApPKUxsCLdtw1pPfSabdd8xzpPRkXGg -d 'Updated'",
+    "deploy": "clasp deploy -i AKfycbwULtVX2PN_vmf_OwhrZnB37jSDhplDniPFSJvoBxZ3UMNyckDeMkT2pC-Fl3Qh1eZ1 -d 'Updated'",
     "ship": "npm run push && npm run deploy",
     "pull": "echo '請勿 pull；以本機為準，只做 npm run push 或 npm run ship。' && exit 1"
   }
