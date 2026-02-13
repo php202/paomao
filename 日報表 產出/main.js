@@ -38,6 +38,26 @@ function callCoreApi(coreApiUrl, coreApiKey, action, extraParams) {
 }
 
 /**
+ * 建立 Core API GET 的完整 URL
+ */
+function buildCoreApiUrl(coreApiUrl, coreApiKey, action, extraParams) {
+  if (!coreApiUrl || !coreApiKey) return null;
+  const sep = coreApiUrl.indexOf('?') >= 0 ? '&' : '?';
+  let q = sep + 'key=' + encodeURIComponent(coreApiKey) + '&action=' + encodeURIComponent(action);
+  if (extraParams && typeof extraParams === 'object') {
+    Object.keys(extraParams).forEach(function (k) {
+      if (extraParams[k] != null && extraParams[k] !== '') {
+        q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(String(extraParams[k]));
+      }
+    });
+  }
+  return coreApiUrl + q;
+}
+
+/** GAS UrlFetch 並發限制，每批最多 20 個請求 */
+var FETCH_BATCH_SIZE = 20;
+
+/**
  * 日報表 產出 - Web App API（URL 化）
  * 部署為「網路應用程式」後，可用 GET/POST 觸發日報產出。
  *
@@ -195,52 +215,69 @@ function runAccNeed() {
     console.log(`🔄 [${dateStr}] 開始抓取...`);
 
     // 每一天都重新建立暫存陣列，跑完一天就清空
-    let dailyAllRows = [];    
-    let dailyDirectRows = []; 
+    let dailyAllRows = [];
+    let dailyDirectRows = [];
 
-    for (const store of stores) {
-      // console.log(dateStr, store.storid); // 減少 log 避免執行過慢，除非除錯
+    // 平行打 API：每批 FETCH_BATCH_SIZE 個，避免超過 GAS 並發限制
+    for (let batchStart = 0; batchStart < stores.length; batchStart += FETCH_BATCH_SIZE) {
+      const batch = stores.slice(batchStart, batchStart + FETCH_BATCH_SIZE);
+      const requests = batch.map(function (store) {
+        const url = buildCoreApiUrl(coreApiUrl, coreApiKey, 'fetchDailyIncome', { date: dateStr, storeId: String(store.storid) });
+        return url ? { url: url, muteHttpExceptions: true, followRedirects: true } : null;
+      }).filter(Boolean);
 
-      // 一律透過 Core API 取得單店單日營收（本專案不再使用 Core 程式庫）
-      const dailyRes = callCoreApi(coreApiUrl, coreApiKey, 'fetchDailyIncome', { date: dateStr, storeId: String(store.storid) });
-      const apiResponse = (dailyRes && dailyRes.status === 'ok') ? dailyRes.data : null;
-      if (!apiResponse && dailyRes && dailyRes.message) {
-        console.error(`Core API fetchDailyIncome 失敗 (${dateStr}, ${store.storid}): ` + dailyRes.message);
-      }
+      if (requests.length === 0) continue;
 
-      if (apiResponse && apiResponse.data && apiResponse.data.totalRow) {
-        const runData = apiResponse.data.totalRow;
+      const responses = UrlFetchApp.fetchAll(requests);
 
-        // 計算邏輯
-        const cashTotal = runData.sum_paymentMethod?.[0]?.total || 0;
-        const cashBusiness = runData.cashpay?.business || 0;
-        const cashUnearn = runData.cashpay?.unearn || 0;
-        const lineTotal = runData.sum_paymentMethod?.[2]?.total || 0;
-        const transferTotal = runData.sum_paymentMethod?.[9]?.total || 0;
-        const thirdPayTotal = lineTotal + transferTotal;
-        const lineRecord = runData.paymentMethod?.[2]?.total || 0;
-        const transferRecord = runData.paymentMethod?.[9]?.total || 0;
-        const transferUnearn = transferTotal - transferRecord;
-        const lineUnearn = lineTotal - lineRecord;
-        const todayService = runData.businessIncome?.service ?? 0; // 今日業績 (L 欄)
+      for (let j = 0; j < responses.length; j++) {
+        const store = batch[j];
+        const res = responses[j];
+        let dailyRes = null;
+        try {
+          dailyRes = JSON.parse(res.getContentText());
+        } catch (e) {
+          console.error(`Core API fetchDailyIncome 解析失敗 (${dateStr}, ${store.storid})`);
+          continue;
+        }
+        const apiResponse = (dailyRes && dailyRes.status === 'ok') ? dailyRes.data : null;
+        if (!apiResponse && dailyRes && dailyRes.message) {
+          console.error(`Core API fetchDailyIncome 失敗 (${dateStr}, ${store.storid}): ` + dailyRes.message);
+        }
 
-        const rowData = [
-          dateStr,        // B 欄：日期
-          store.alias,    // C 欄：店家
-          cashTotal,
-          cashBusiness,
-          cashUnearn,
-          thirdPayTotal,
-          transferRecord,
-          lineRecord,
-          transferUnearn,
-          lineUnearn,
-          todayService   // L 欄：今日業績 (fetchDailyIncome > data > totalRow > businessIncome > service)
-        ];
+        if (apiResponse && apiResponse.data && apiResponse.data.totalRow) {
+          const runData = apiResponse.data.totalRow;
 
-        dailyAllRows.push(rowData);
-        if (store.isDirect === true) {
-          dailyDirectRows.push(rowData);
+          const cashTotal = runData.sum_paymentMethod?.[0]?.total || 0;
+          const cashBusiness = runData.cashpay?.business || 0;
+          const cashUnearn = runData.cashpay?.unearn || 0;
+          const lineTotal = runData.sum_paymentMethod?.[2]?.total || 0;
+          const transferTotal = runData.sum_paymentMethod?.[9]?.total || 0;
+          const thirdPayTotal = lineTotal + transferTotal;
+          const lineRecord = runData.paymentMethod?.[2]?.total || 0;
+          const transferRecord = runData.paymentMethod?.[9]?.total || 0;
+          const transferUnearn = transferTotal - transferRecord;
+          const lineUnearn = lineTotal - lineRecord;
+          const todayService = runData.businessIncome?.service ?? 0;
+
+          const rowData = [
+            dateStr,
+            store.alias,
+            cashTotal,
+            cashBusiness,
+            cashUnearn,
+            thirdPayTotal,
+            transferRecord,
+            lineRecord,
+            transferUnearn,
+            lineUnearn,
+            todayService
+          ];
+
+          dailyAllRows.push(rowData);
+          if (store.isDirect === true) {
+            dailyDirectRows.push(rowData);
+          }
         }
       }
     }
@@ -314,11 +351,22 @@ function runAccNeed() {
 }
 
 /**
- * 楊梅金山店 日帳報表（一次性使用，跑完可刪）
- * 每跑一天就 append 進「營收報表_楊梅金山」，持續跑到今天。若逾時當機，下次執行會從最後一天續跑。
+ * 單店日帳產出設定
+ * - storeNameMatch: 店家名稱關鍵字（用 indexOf 比對 getLineSayDouInfoMap 的 name，來自「店家基本資料」試算表）
+ * - sheetName: 工作表名稱
+ * 要一次抓多間店：在陣列新增項目即可，例如 { storeNameMatch: 'XX店', sheetName: '營收報表_XX' }
+ */
+var STORE_DAILY_REPORT_CONFIG = [
+  { storeNameMatch: '楊梅金山', sheetName: '營收報表_楊梅金山' }
+];
+
+/**
+ * 單店日帳報表（可多店）
+ * 用「店家名稱」比對（storeNameMatch 對 getLineSayDouInfoMap 的 name 做 indexOf）。
+ * 平行拉取多天（每批 FETCH_BATCH_SIZE 天），每跑一天 append 進對應 sheet，持續跑到今天。
+ * 若逾時當機，下次執行會從各 sheet 最後一天續跑。
  */
 function runYangmeiJinshanDailyReport() {
-  const STORE_NAME = '楊梅金山';
   const START_DATE_STR = '2025-03-01';
 
   const { url: coreApiUrl, key: coreApiKey, useApi } = getCoreApiParams();
@@ -336,68 +384,17 @@ function runYangmeiJinshanDailyReport() {
 
   const storeRes = callCoreApi(coreApiUrl, coreApiKey, 'getLineSayDouInfoMap', {});
   const storeMap = (storeRes && storeRes.status === 'ok' && storeRes.data && typeof storeRes.data === 'object') ? storeRes.data : {};
-  let targetStore = null;
-  for (const info of Object.values(storeMap)) {
-    if (info && info.saydouId && (info.name || '').indexOf(STORE_NAME) >= 0) {
-      targetStore = { storid: info.saydouId, alias: info.name || STORE_NAME };
-      break;
-    }
-  }
-  if (!targetStore) {
-    throw new Error('找不到店家「' + STORE_NAME + '」。');
-  }
 
   const externalSs = SpreadsheetApp.openById(ssId);
   const timeZone = externalSs.getSpreadsheetTimeZone();
   const getFormattedDate = (date) => Utilities.formatDate(date, timeZone, 'yyyy-MM-dd');
 
-  const SHEET_NAME = '營收報表_楊梅金山';
-  let sheet = externalSs.getSheetByName(SHEET_NAME);
-  if (!sheet) sheet = externalSs.insertSheet(SHEET_NAME);
-
   const HEADERS = ['日期', '店家', '現金總額', '消費紀錄(現金)', '儲值(現金)', '第三方總額', '轉帳入帳', 'LINE入帳', '轉帳未收', 'LINE未收', '今日業績'];
-  if (sheet.getLastRow() < 1) {
-    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold');
-  }
 
-  // --- 抓金山店表最後一天：從「營收報表_楊梅金山」最後一列取得日期，下次從該日+1 繼續跑；起點不早於 2025-03-01，終點為今天 ---
-  const minStartDate = new Date(START_DATE_STR);
-  let nextDate;
-  if (sheet.getLastRow() >= 2) {
-    const lastDateVal = sheet.getRange(sheet.getLastRow(), 1).getValue();
-    const lastDateStr = lastDateVal != null ? (typeof lastDateVal === 'object' && lastDateVal.getTime ? getFormattedDate(lastDateVal) : String(lastDateVal).trim()) : '';
-    if (lastDateStr) {
-      const lastDate = new Date(lastDateStr);
-      nextDate = new Date(lastDate);
-      nextDate.setDate(nextDate.getDate() + 1);
-    }
-  }
-  if (!nextDate || nextDate < minStartDate) {
-    nextDate = new Date(minStartDate);
-  }
-
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
-  if (nextDate > today) {
-    const excelUrl = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?format=xlsx&gid=' + sheet.getSheetId();
-    try {
-      const ui = SpreadsheetApp.getUi();
-      if (ui) ui.alert('楊梅金山店日帳已全部完成。\n\n下載 Excel：\n' + excelUrl);
-    } catch (e) {}
-    return;
-  }
-
-  // --- 持續跑：每跑一天就 append 進 sheet，直到今天為止（若逾時當機，下次執行會從最後一天續跑）---
-  let currentDate = new Date(nextDate);
-  let processed = 0;
-  while (currentDate <= today) {
-    const dateStr = getFormattedDate(currentDate);
-    const dailyRes = callCoreApi(coreApiUrl, coreApiKey, 'fetchDailyIncome', { date: dateStr, storeId: String(targetStore.storid) });
-    const apiResponse = (dailyRes && dailyRes.status === 'ok') ? dailyRes.data : null;
-
-    const runData = (apiResponse && apiResponse.data && apiResponse.data.totalRow) ? apiResponse.data.totalRow : null;
-    const rowData = runData ? [
-      dateStr, targetStore.alias,
+  function parseRunDataToRow(dateStr, alias, runData) {
+    if (!runData) return [dateStr, alias, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    return [
+      dateStr, alias,
       runData.sum_paymentMethod?.[0]?.total || 0,
       runData.cashpay?.business || 0,
       runData.cashpay?.unearn || 0,
@@ -407,16 +404,106 @@ function runYangmeiJinshanDailyReport() {
       (runData.sum_paymentMethod?.[9]?.total || 0) - (runData.paymentMethod?.[9]?.total || 0),
       (runData.sum_paymentMethod?.[2]?.total || 0) - (runData.paymentMethod?.[2]?.total || 0),
       runData.businessIncome?.service ?? 0
-    ] : [dateStr, targetStore.alias, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    sheet.appendRow(rowData);
-    SpreadsheetApp.flush();
-    processed++;
-    currentDate.setDate(currentDate.getDate() + 1);
+    ];
   }
 
-  const excelUrl = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?format=xlsx&gid=' + sheet.getSheetId();
+  let totalProcessed = 0;
+  const completedSheets = [];
+
+  for (const cfg of STORE_DAILY_REPORT_CONFIG) {
+    const targetStore = (function () {
+      for (const info of Object.values(storeMap)) {
+        if (info && info.saydouId && (info.name || '').indexOf(cfg.storeNameMatch) >= 0) {
+          return { storid: info.saydouId, alias: info.name || cfg.storeNameMatch };
+        }
+      }
+      return null;
+    })();
+    if (!targetStore) {
+      console.warn('找不到店家「' + cfg.storeNameMatch + '」，跳過。');
+      continue;
+    }
+
+    let sheet = externalSs.getSheetByName(cfg.sheetName);
+    if (!sheet) sheet = externalSs.insertSheet(cfg.sheetName);
+    if (sheet.getLastRow() < 1) {
+      sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold');
+    }
+
+    const minStartDate = new Date(START_DATE_STR);
+    let nextDate;
+    if (sheet.getLastRow() >= 2) {
+      const lastDateVal = sheet.getRange(sheet.getLastRow(), 1).getValue();
+      const lastDateStr = lastDateVal != null ? (typeof lastDateVal === 'object' && lastDateVal.getTime ? getFormattedDate(lastDateVal) : String(lastDateVal).trim()) : '';
+      if (lastDateStr) {
+        const lastDate = new Date(lastDateStr);
+        nextDate = new Date(lastDate);
+        nextDate.setDate(nextDate.getDate() + 1);
+      }
+    }
+    if (!nextDate || nextDate < minStartDate) {
+      nextDate = new Date(minStartDate);
+    }
+
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (nextDate > today) {
+      completedSheets.push({ name: cfg.sheetName, sheet: sheet });
+      continue;
+    }
+
+    // --- 平行拉取：每批 FETCH_BATCH_SIZE 天 ---
+    let currentDate = new Date(nextDate);
+    let processed = 0;
+
+    while (currentDate <= today) {
+      const dateBatch = [];
+      let batchDate = new Date(currentDate);
+      for (let i = 0; i < FETCH_BATCH_SIZE && batchDate <= today; i++) {
+        dateBatch.push({ date: new Date(batchDate), dateStr: getFormattedDate(batchDate) });
+        batchDate.setDate(batchDate.getDate() + 1);
+      }
+
+      const requests = dateBatch.map(function (d) {
+        const url = buildCoreApiUrl(coreApiUrl, coreApiKey, 'fetchDailyIncome', { date: d.dateStr, storeId: String(targetStore.storid) });
+        return url ? { url: url, muteHttpExceptions: true, followRedirects: true } : null;
+      }).filter(Boolean);
+
+      if (requests.length === 0) break;
+
+      const responses = UrlFetchApp.fetchAll(requests);
+      const rowsToAppend = [];
+
+      for (let j = 0; j < responses.length; j++) {
+        const d = dateBatch[j];
+        let dailyRes = null;
+        try {
+          dailyRes = JSON.parse(responses[j].getContentText());
+        } catch (e) {}
+        const apiResponse = (dailyRes && dailyRes.status === 'ok') ? dailyRes.data : null;
+        const runData = (apiResponse && apiResponse.data && apiResponse.data.totalRow) ? apiResponse.data.totalRow : null;
+        rowsToAppend.push(parseRunDataToRow(d.dateStr, targetStore.alias, runData));
+      }
+
+      if (rowsToAppend.length > 0) {
+        const startRow = sheet.getLastRow() + 1;
+        sheet.getRange(startRow, 1, startRow + rowsToAppend.length - 1, HEADERS.length).setValues(rowsToAppend);
+        SpreadsheetApp.flush();
+        processed += rowsToAppend.length;
+      }
+
+      currentDate = new Date(batchDate);
+    }
+
+    totalProcessed += processed;
+    completedSheets.push({ name: cfg.sheetName, sheet: sheet });
+  }
+
+  const excelUrl = completedSheets.length > 0
+    ? 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?format=xlsx&gid=' + completedSheets[0].sheet.getSheetId()
+    : '';
   try {
     const ui = SpreadsheetApp.getUi();
-    if (ui) ui.alert('楊梅金山店日帳已完成，共寫入 ' + processed + ' 天。\n\n下載 Excel：\n' + excelUrl);
+    if (ui) ui.alert('單店日帳已完成，共寫入 ' + totalProcessed + ' 筆。\n\n下載 Excel：\n' + excelUrl);
   } catch (e) {}
 }
