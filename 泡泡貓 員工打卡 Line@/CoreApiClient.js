@@ -121,6 +121,11 @@ var CoreApi = (function () {
       var r = callGet("getWorkflowLink", { keyword: keyword });
       return (r.status === "ok" && r.url != null) ? r.url : null;
     },
+    getDirectStoreReplyStatusText: function () {
+      var r = callGet("getDirectStoreReplyStatusText", {});
+      if (r.status === "ok" && r.ok) return { ok: true, text: r.text || "" };
+      return { ok: false, message: r.message || "無法取得店家回覆狀態" };
+    },
     getLineSayDouInfoMap: function () {
       var r = callGet("getLineSayDouInfoMap", {});
       if (r.status === "ok" && r.data) return r.data;

@@ -1,6 +1,3 @@
-/** 門市預約表單試算表 ID */
-const PAOPAO_STORE_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
-
 function gogoshopStocksReport() {
   // 1. 設定基礎網址 (不含 page 參數)
   var baseUrl = "https://my.gogoshop.io/Stocks/report";

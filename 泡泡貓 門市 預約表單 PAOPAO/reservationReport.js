@@ -1,9 +1,6 @@
 // ==========================================
 // [Report.gs] 預約表單報表 (防爆 API 安全版)
 // ==========================================
-/** 門市預約表單試算表 ID */
-const PAOPAO_STORE_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
-
 const REPORT_CONFIG = {
   SHEET_NAME: "預約表單",
   // 固定檢測這些時段

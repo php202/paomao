@@ -763,6 +763,25 @@ function routeMessageEvent(event) {
         }
       }
 
+      // 3.4 店家回覆狀態（僅限管理者；從訊息一覽動態計算直營店未回覆數與完成率）
+      if (text.indexOf("店家回覆狀態") !== -1) {
+        if (!auth.identity || auth.identity.indexOf("manager") === -1) {
+          reply(replyToken, "此功能僅限管理者使用。");
+          return;
+        }
+        try {
+          var directResult = typeof Core !== "undefined" && typeof Core.getDirectStoreReplyStatusText === "function"
+            ? Core.getDirectStoreReplyStatusText()
+            : { ok: false, message: "此功能需更新 Core 程式庫。" };
+          reply(replyToken, directResult.ok ? directResult.text : directResult.message);
+          return;
+        } catch (eDir) {
+          console.warn("[店家回覆狀態] 產出失敗:", eDir);
+          reply(replyToken, "店家回覆狀態發生錯誤，請稍後再試或聯繫管理員。");
+          return;
+        }
+      }
+
       // 3.5 報告關鍵字（僅限「管理者清單」內的使用者；只回傳該 user 管理的門市）
       const reportHandler = typeof Core !== "undefined" && typeof Core.getReportHandlerFromKeyword === "function"
         ? Core.getReportHandlerFromKeyword(text)

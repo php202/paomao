@@ -1,6 +1,3 @@
-/** 門市預約表單試算表 ID */
-const PAOPAO_STORE_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
-
 function compareSalesData() {
   // ================= 設定區 =================
   var myCookie = getP1();

@@ -1,9 +1,6 @@
 // ==========================================
 // [StoreData.gs] 儲值金請款報表 (安全分批版)
 // ==========================================
-/** 門市預約表單試算表 ID */
-const PAOPAO_STORE_SS_ID = '1-t4KPVK-uzJ2xUoy_NR3d4XcUohLHVETEFXTlvj4baE';
-
 function storeData() {
   const ss = SpreadsheetApp.openById(PAOPAO_STORE_SS_ID);
   const reSheet = ss.getSheetByName("儲值金請款test");

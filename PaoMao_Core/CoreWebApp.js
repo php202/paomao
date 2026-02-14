@@ -126,6 +126,9 @@ function handleRequest(params, method) {
         return actionFindAvailableSlots(params);
       case "debugLineStoreMap":
         return jsonOut({ status: "ok", data: debugLineStoreMap() });
+      case "getDirectStoreReplyStatusText":
+        var directRes = (typeof getDirectStoreReplyStatusText === "function") ? getDirectStoreReplyStatusText() : { ok: false, message: "功能未就緒" };
+        return jsonOut(directRes.ok ? { status: "ok", ok: true, text: directRes.text } : { status: "error", ok: false, message: directRes.message || "取得失敗" });
       case "getUserDisplayName":
         return actionGetUserDisplayName(params);
       case "executeRefundByPhone":
