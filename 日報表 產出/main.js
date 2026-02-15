@@ -121,6 +121,17 @@ function handleReportApiRequest(params) {
       return jsonReportOut({ status: 'error', message: msg });
     }
   }
+  if (action === 'employeeMonthlyPerformanceReport') {
+    try {
+      const mode = (params.mode != null) ? String(params.mode).trim() : 'lastMonth';
+      const batchSize = (params.batchSize != null) ? parseInt(params.batchSize, 10) : 3;
+      const res = callEmployeeMonthlyReportApi(mode, isNaN(batchSize) ? 3 : batchSize);
+      return jsonReportOut(res);
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      return jsonReportOut({ status: 'error', message: msg });
+    }
+  }
   return jsonReportOut({ status: 'error', message: '未知 action: ' + (action || '(未提供)') });
 }
 
@@ -506,4 +517,366 @@ function runYangmeiJinshanDailyReport() {
     const ui = SpreadsheetApp.getUi();
     if (ui) ui.alert('單店日帳已完成，共寫入 ' + totalProcessed + ' 筆。\n\n下載 Excel：\n' + excelUrl);
   } catch (e) {}
+}
+
+/**
+ * 呼叫 Core API 取得員工業績月報資料（不寫入，僅回傳 rows）
+ * @param {string} startYm - 起始月份，如 '2025-01'
+ * @param {string} endYm - 結束月份，如 '2025-01'
+ * @returns {{ status: string, data?: { rows: Array, months: Array }, _debug?: string }}
+ */
+function callEmployeeMonthlyReportFetchData(startYm, endYm) {
+  const { url: coreApiUrl, key: coreApiKey, useApi } = getCoreApiParams();
+  if (!useApi) {
+    Logger.log('[員工業績月報] ✗ callEmployeeMonthlyReportFetchData: 未設定 Core API');
+    return { status: 'error', message: '請在指令碼屬性設定 PAO_CAT_CORE_API_URL 與 PAO_CAT_SECRET_KEY。' };
+  }
+  const sep = coreApiUrl.indexOf('?') >= 0 ? '&' : '?';
+  const q = sep + 'key=' + encodeURIComponent(coreApiKey) + '&action=employeeMonthlyPerformanceReport&mode=fetchData&startYm=' + encodeURIComponent(startYm || '') + '&endYm=' + encodeURIComponent(endYm || '');
+  const fullUrl = coreApiUrl + q;
+  Logger.log('[員工業績月報] 呼叫 Core API fetchData startYm=' + startYm + ' endYm=' + endYm);
+  try {
+    const res = UrlFetchApp.fetch(fullUrl, {
+      muteHttpExceptions: true,
+      followRedirects: true,
+      timeout: 330000
+    });
+    const code = res.getResponseCode();
+    const text = res.getContentText() || '{}';
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (parseErr) {
+      Logger.log('[員工業績月報] ✗ Core API 回傳非 JSON，前 200 字: ' + text.substring(0, 200));
+      return { status: 'error', message: 'Core API 回傳非 JSON', _debug: text.substring(0, 300) };
+    }
+    if (code >= 400) {
+      Logger.log('[員工業績月報] ✗ Core API HTTP ' + code + ': ' + (parsed.message || parsed._debug || text.substring(0, 150)));
+      return { status: 'error', message: parsed.message || 'API 錯誤', _debug: 'code=' + code };
+    }
+    const rowCount = (parsed.data && parsed.data.rows) ? parsed.data.rows.length : 0;
+    Logger.log('[員工業績月報] Core API 回傳 ok, rows=' + rowCount);
+    return parsed;
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : String(e);
+    const isTimeout = /timeout|timed out|deadline/i.test(msg);
+    Logger.log('[員工業績月報] ✗ Core API 連線失敗: ' + msg);
+    return {
+      status: 'error',
+      message: isTimeout ? 'Core API 逾時（SayDou 拉取較慢，請稍後重試或檢查 PaoMao_Core 執行紀錄）' : msg,
+      _debug: 'fetch failed: ' + msg
+    };
+  }
+}
+
+/**
+ * 呼叫 Core API 產出員工業績月報表（舊流程，Core 寫入試算表）
+ * @param {string} mode - 'full' | 'lastMonth' | 'estimate'
+ * @param {number} batchSize - full 時每次處理月份數
+ * @param {string[]} processedMonths - 已處理月份
+ */
+function callEmployeeMonthlyReportApi(mode, batchSize, processedMonths) {
+  const { url: coreApiUrl, key: coreApiKey, useApi } = getCoreApiParams();
+  if (!useApi) {
+    return { status: 'error', message: '請在指令碼屬性設定 PAO_CAT_CORE_API_URL 與 PAO_CAT_SECRET_KEY。' };
+  }
+  const sep = coreApiUrl.indexOf('?') >= 0 ? '&' : '?';
+  let q = sep + 'key=' + encodeURIComponent(coreApiKey) + '&action=employeeMonthlyPerformanceReport&mode=' + encodeURIComponent(mode || 'lastMonth') + '&batchSize=' + encodeURIComponent(String(batchSize || 3));
+  if (processedMonths && Array.isArray(processedMonths) && processedMonths.length > 0) {
+    q += '&processedMonths=' + encodeURIComponent(processedMonths.join(','));
+  }
+  const fullUrl = coreApiUrl + q;
+  const urlForLog = (coreApiUrl || '').replace(/\/exec.*/, '/exec') + '?action=employeeMonthlyPerformanceReport&mode=' + (mode || 'lastMonth') + '&batchSize=' + (batchSize || 1);
+  try {
+    const res = UrlFetchApp.fetch(fullUrl, {
+      muteHttpExceptions: true,
+      followRedirects: true,
+      timeout: 300000 // 5 分鐘
+    });
+    const code = res.getResponseCode();
+    const text = res.getContentText();
+    try {
+      const parsed = JSON.parse(text);
+      if (code >= 400) {
+        return {
+          status: 'error',
+          message: 'Core API HTTP ' + code + ': ' + (parsed.message || text.slice(0, 200)),
+          _debug: 'code=' + code + ' body=' + text.slice(0, 500)
+        };
+      }
+      return parsed;
+    } catch (parseErr) {
+      return {
+        status: 'error',
+        message: 'Core API 回傳非 JSON (HTTP ' + code + '): ' + (parseErr && parseErr.message ? parseErr.message : ''),
+        _debug: 'code=' + code + ' body=' + (text ? text.slice(0, 500) : '(空)')
+      };
+    }
+  } catch (e) {
+    const errMsg = (e && e.message) ? e.message : String(e);
+    return {
+      status: 'error',
+      message: 'Core API 連線失敗: ' + errMsg,
+      _debug: 'url=' + (fullUrl ? fullUrl.slice(0, 80) + '...' : '') + ' error=' + errMsg
+    };
+  }
+}
+
+/** 員工業績月報表試算表 ID（泡泡貓日報表），可於指令碼屬性 DAILY_ACCOUNT_REPORT_SS_ID 覆寫 */
+function getEmployeeMonthlyReportSsId() {
+  const p = PropertiesService.getScriptProperties().getProperty('DAILY_ACCOUNT_REPORT_SS_ID');
+  return (p && p.trim()) ? p.trim() : '1ZMutegYTLZ51XQHCbfFZ7-iAj1qTZGgSo5VTThXPQ5U';
+}
+var EMPLOYEE_MONTHLY_REPORT_SHEET_GID = 833948053;
+var EMPLOYEE_MONTHLY_REPORT_SHEET_NAME = '員工業績月報';
+var EMPLOYEE_MONTHLY_REPORT_HEADERS = ['月份', '員工編號', '員工姓名', '所屬店家', '業績金額'];
+
+/**
+ * 從試算表讀取既有月份（以表中資料為準，不依賴暫存）
+ * @returns {string[]} 既有月份陣列，如 ['2025-01','2025-02',...]
+ */
+function getEmployeeMonthlyReportExistingMonthsFromSheet() {
+  try {
+    const ss = SpreadsheetApp.openById(getEmployeeMonthlyReportSsId());
+    let sheet = ss.getSheetById(EMPLOYEE_MONTHLY_REPORT_SHEET_GID);
+    if (!sheet) sheet = ss.getSheetByName(EMPLOYEE_MONTHLY_REPORT_SHEET_NAME);
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    const lr = sheet.getLastRow();
+    const vals = sheet.getRange('A2:A' + lr).getValues();
+    const seen = {};
+    const allMonths = [];
+    for (let i = 0; i < vals.length; i++) {
+      let m = '';
+      const v = vals[i][0];
+      if (v instanceof Date) {
+        m = Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM');
+      } else if (v != null && v !== '') {
+        m = String(v).trim().replace(/\//g, '-');
+        if (/^\d{4}-\d$/.test(m)) m = m.slice(0, 5) + '0' + m.slice(5);
+      }
+      if (m && /^\d{4}-\d{2}$/.test(m) && !seen[m]) {
+        seen[m] = true;
+        allMonths.push(m);
+      }
+    }
+    return allMonths.sort();
+  } catch (e) {
+    Logger.log('[員工業績月報] 讀取試算表既有月份失敗: ' + (e && e.message ? e.message : e));
+    return [];
+  }
+}
+
+/**
+ * 取得員工業績月報表試算表
+ */
+function getEmployeeMonthlyReportSheet_() {
+  const ss = SpreadsheetApp.openById(getEmployeeMonthlyReportSsId());
+  if (!ss) return null;
+  const sheet = ss.getSheetById(EMPLOYEE_MONTHLY_REPORT_SHEET_GID) || ss.getSheetByName(EMPLOYEE_MONTHLY_REPORT_SHEET_NAME);
+  if (!sheet) {
+    const newSheet = ss.insertSheet(EMPLOYEE_MONTHLY_REPORT_SHEET_NAME);
+    newSheet.getRange(1, 1, 1, EMPLOYEE_MONTHLY_REPORT_HEADERS.length).setValues([EMPLOYEE_MONTHLY_REPORT_HEADERS]);
+    newSheet.getRange(1, 1, 1, EMPLOYEE_MONTHLY_REPORT_HEADERS.length).setFontWeight('bold');
+    return newSheet;
+  }
+  return sheet;
+}
+
+/**
+ * 將 Core API 回傳的 rows 寫入試算表（本地執行，資料不失準）
+ * 以 月份-員工編號 為 key：已存在則更新該列，否則 append
+ * @param {Array} rows - [[月份, 員工編號, 員工姓名, 所屬店家, 業績金額], ...]
+ * @param {string[]} replaceMonths - 已棄用，保留相容；一律以 key 更新不刪除
+ */
+function writeEmployeeMonthlyReportRowsToSheet(rows, replaceMonths) {
+  try {
+    const sheet = getEmployeeMonthlyReportSheet_();
+    if (!sheet) {
+      Logger.log('[員工業績月報] ✗ writeEmployeeMonthlyReportRowsToSheet: 無法取得工作表');
+      return { ok: false, message: '無法取得工作表' };
+    }
+    const numCols = EMPLOYEE_MONTHLY_REPORT_HEADERS.length;
+    let lastRow = sheet.getLastRow();
+    let existingKeyToRow = {};
+
+    if (lastRow >= 2) {
+      const numDataRows = lastRow - 1;
+      const values = sheet.getRange(2, 1, numDataRows, numCols).getValues();
+      for (let i = 0; i < values.length; i++) {
+        const m = (values[i][0] != null) ? String(values[i][0]).trim() : '';
+        const code = (values[i][1] != null) ? String(values[i][1]).trim() : '';
+        const key = m + '|' + code;
+        existingKeyToRow[key] = i + 2;
+      }
+    }
+
+    const toAppend = [];
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      const key = (row[0] || '') + '|' + (row[1] || '');
+      const rowIndex = existingKeyToRow[key];
+      if (rowIndex) {
+        sheet.getRange(rowIndex, 1, 1, numCols).setValues([row]);
+        delete existingKeyToRow[key];
+      } else {
+        toAppend.push(row);
+      }
+    }
+    if (toAppend.length > 0) {
+      const startRow = sheet.getLastRow() + 1;
+      sheet.getRange(startRow, 1, toAppend.length, numCols).setValues(toAppend);
+    }
+    const sheetName = sheet.getName();
+    const sheetGid = sheet.getSheetId();
+    Logger.log('[員工業績月報] 寫入完成：工作表「' + sheetName + '」(gid=' + sheetGid + ')，更新 ' + (rows.length - toAppend.length) + ' 筆、新增 ' + toAppend.length + ' 筆（新資料在表格最下方，請向下捲動）');
+    return { ok: true, rowCount: rows.length, updated: rows.length - toAppend.length, appended: toAppend.length };
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : String(e);
+    Logger.log('[員工業績月報] ✗ writeEmployeeMonthlyReportRowsToSheet 例外: ' + msg);
+    return { ok: false, message: msg };
+  }
+}
+
+/**
+ * 產出員工業績月報表（2025～現在）
+ * 流程：日報表從試算表讀取既有月份 → 呼叫 Core API 取得資料 → 日報表本地寫入試算表
+ * 輸出至 Logger（檢視 → 執行紀錄）
+ */
+function runEmployeeMonthlyReportFull() {
+  const ts = function () { return Utilities.formatDate(new Date(), 'Asia/Taipei', 'HH:mm:ss'); };
+  Logger.log('[員工業績月報] ' + ts() + ' 開始產出 2025～現在');
+  const ssId = getEmployeeMonthlyReportSsId();
+  Logger.log('[員工業績月報] 資料寫入：試算表 ' + ssId + ' → 工作表「' + EMPLOYEE_MONTHLY_REPORT_SHEET_NAME + '」(gid=' + EMPLOYEE_MONTHLY_REPORT_SHEET_GID + ')');
+  Logger.log('[員工業績月報] 請開啟此連結查看：https://docs.google.com/spreadsheets/d/' + ssId + '/edit#gid=' + EMPLOYEE_MONTHLY_REPORT_SHEET_GID);
+
+  const existingMonths = getEmployeeMonthlyReportExistingMonthsFromSheet();
+  if (existingMonths.length > 0) {
+    Logger.log('[員工業績月報] ' + ts() + ' 從試算表讀取既有月份: ' + existingMonths.join(','));
+  }
+
+  const endYm = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM');
+  const endY = parseInt(endYm.slice(0, 4), 10);
+  const endM = parseInt(endYm.slice(5, 7), 10);
+  const allMonths = [];
+  for (let y = 2025, m = 1; y < endY || (y === endY && m <= endM); ) {
+    allMonths.push(y + '-' + (m < 10 ? '0' : '') + m);
+    if (m >= 12) { m = 1; y++; } else { m++; }
+  }
+
+  const existingSet = {};
+  for (let i = 0; i < existingMonths.length; i++) existingSet[existingMonths[i]] = true;
+
+  let toProcess = [];
+  for (let j = 0; j < allMonths.length; j++) {
+    if (!existingSet[allMonths[j]]) toProcess.push(allMonths[j]);
+  }
+
+  const sheet = getEmployeeMonthlyReportSheet_();
+  let lastMonthInSheet = null;
+  if (sheet && sheet.getLastRow() >= 2) {
+    const lr = sheet.getLastRow();
+    const lastVal = sheet.getRange(lr, 1, 1, 1).getValues();
+    let lastM = (lastVal && lastVal[0] && lastVal[0][0]) ? String(lastVal[0][0]).trim() : '';
+    if (lastVal[0][0] instanceof Date) lastM = Utilities.formatDate(lastVal[0][0], 'Asia/Taipei', 'yyyy-MM');
+    if (lastM && /^\d{4}-\d{2}$/.test(lastM) && allMonths.indexOf(lastM) >= 0) {
+      lastMonthInSheet = lastM;
+      if (toProcess.indexOf(lastMonthInSheet) === -1) toProcess.unshift(lastMonthInSheet);
+      Logger.log('[員工業績月報] ' + ts() + ' 表末筆月份 ' + lastMonthInSheet + '，先重拉並以 月份-員工編號 更新');
+    }
+  }
+
+  Logger.log('[員工業績月報] ' + ts() + ' 待處理 ' + toProcess.length + ' 個月: ' + (toProcess.slice(0, 5).join(',') + (toProcess.length > 5 ? '...' : '')));
+  if (toProcess.length === 0) {
+    Logger.log('[員工業績月報] ' + ts() + ' 無待處理月份，結束');
+    return;
+  }
+  /** 每次最多處理月份數，避免逾時；剩餘月份下次執行會續跑 */
+  const MAX_MONTHS_PER_RUN = 3;
+  const toRun = toProcess.slice(0, MAX_MONTHS_PER_RUN);
+  if (toProcess.length > MAX_MONTHS_PER_RUN) {
+    Logger.log('[員工業績月報] 本次處理 ' + MAX_MONTHS_PER_RUN + ' 個月，剩餘 ' + (toProcess.length - MAX_MONTHS_PER_RUN) + ' 個月請再執行一次');
+  }
+
+  let totalProcessed = 0;
+  let lastError = null;
+  for (let round = 0; round < toRun.length; round++) {
+    const ym = toRun[round];
+    Logger.log('[員工業績月報] ' + ts() + ' 第 ' + (round + 1) + '/' + toRun.length + ' 批：向 Core API 取得 ' + ym + ' 資料');
+    const t0 = new Date().getTime();
+    const res = callEmployeeMonthlyReportFetchData(ym, ym);
+    const elapsed = Math.round((new Date().getTime() - t0) / 1000);
+    Logger.log('[員工業績月報] ' + ts() + ' API 回應耗時 ' + elapsed + ' 秒');
+
+    if (res.status === 'ok' && res.data && res.data.rows) {
+      const rows = res.data.rows;
+      Logger.log('[員工業績月報] ' + ts() + ' 開始寫入 ' + ym + '，共 ' + rows.length + ' 筆');
+      const write = writeEmployeeMonthlyReportRowsToSheet(rows, [ym]);
+      if (write.ok) {
+        totalProcessed++;
+        Logger.log('[員工業績月報] ' + ts() + ' ✓ 已寫入 ' + ym + '（' + rows.length + ' 筆）');
+      } else {
+        lastError = { message: write.message || '寫入失敗' };
+        Logger.log('[員工業績月報] ' + ts() + ' ✗ 寫入失敗: ' + (write.message || ''));
+        break;
+      }
+    } else {
+      lastError = res;
+      Logger.log('[員工業績月報] ' + ts() + ' ✗ API 失敗 status=' + (res.status || '') + ' message=' + (res.message || '') + (res._debug ? ' _debug=' + res._debug : ''));
+      break;
+    }
+  }
+  if (lastError) {
+    Logger.log('[員工業績月報] ' + ts() + ' 產出失敗: ' + lastError.message);
+  } else {
+    Logger.log('[員工業績月報] ' + ts() + ' 完成，共處理 ' + totalProcessed + ' 個月');
+  }
+}
+
+/**
+ * 產出員工業績月報表（僅上月，供排程或手動）
+ * 流程：呼叫 Core API 取得上月資料 → 日報表本地寫入試算表
+ */
+function runEmployeeMonthlyReportLastMonth() {
+  Logger.log('[員工業績月報] 開始產出上月');
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const ym = Utilities.formatDate(lastMonth, 'Asia/Taipei', 'yyyy-MM');
+  const res = callEmployeeMonthlyReportFetchData(ym, ym);
+  if (res.status === 'ok' && res.data && res.data.rows) {
+    const write = writeEmployeeMonthlyReportRowsToSheet(res.data.rows, [ym]);
+    Logger.log('[員工業績月報] ' + (write.ok ? '成功' : '失敗') + ': ' + (write.ok ? (res.data.rows.length + ' 筆') : (write.message || '')));
+  } else {
+    Logger.log('[員工業績月報] 失敗: ' + (res.message || '') + (res._debug ? ' | ' + res._debug : ''));
+  }
+}
+
+/**
+ * 【除錯用】測試員工業績月報 API，輸出至 Logger（檢視 → 執行紀錄）
+ */
+function debugEmployeeMonthlyReportApi() {
+  const now = new Date();
+  const ym = Utilities.formatDate(new Date(now.getFullYear(), now.getMonth() - 1, 1), 'Asia/Taipei', 'yyyy-MM');
+  const res = callEmployeeMonthlyReportFetchData(ym, ym);
+  const full = 'status=' + res.status + '\nmessage=' + (res.message || '') + '\nrows=' + (res.data && res.data.rows ? res.data.rows.length : 0) + '\n\n完整 JSON:\n' + JSON.stringify(res, null, 2);
+  Logger.log('[debugEmployeeMonthlyReportApi] ' + full);
+}
+
+/**
+ * 建立每月 1 日觸發「員工業績月報表（上月）」的排程
+ * 執行一次即可，之後每月 1 日會自動產出上月業績
+ */
+function setupEmployeeMonthlyReportTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  const existing = triggers.find(function (t) {
+    return t.getHandlerFunction() === 'runEmployeeMonthlyReportLastMonth';
+  });
+  if (existing) {
+    ScriptApp.deleteTrigger(existing);
+  }
+  ScriptApp.newTrigger('runEmployeeMonthlyReportLastMonth')
+    .timeBased()
+    .onMonthDay(1)
+    .atHour(8)
+    .create();
+  Logger.log('[員工業績月報] 已建立每月 1 日上午 8:00 觸發排程');
 }

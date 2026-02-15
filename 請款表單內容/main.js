@@ -1,6 +1,3 @@
-/** 2026請款表試算表 ID（與 EXTERNAL_SS_ID 同） */
-const PAYMENT_SS_ID = '17hX7CjeDj2xdKBIt9TKG6iJF5lB38uXwj2kdhb4oIQE';
-
 /**
  * 在試算表開啟時建立自訂選單
  */

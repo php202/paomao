@@ -189,13 +189,27 @@ function isCounterStaffDutyoff(d) {
   return nam.indexOf("櫃檯") >= 0;
 }
 
+/** baseData 快取 TTL（秒），6 小時，避免 urlfetch 每日配額耗盡 */
+var BASE_DATA_CACHE_TTL_SEC = 6 * 60 * 60;
+
 /**
- * 取得 baseData 完整回應（快取 6 小時，全專案共用）
+ * 取得 baseData 完整回應（快取 6 小時，全專案共用，減少 urlfetch 呼叫）
  * @param {string} token - API Token
  * @return {{ status: boolean, positions: Array, stores: Array, staffs: Array }} 或 null
  */
 function getBaseDataCached(token) {
-  // 先關閉 baseData 的快取，每次直接打 API 取得最新資料
+  var tokenPart = (token && String(token).length > 0) ? String(token).substring(0, 24) : "default";
+  var cacheKey = "baseData_" + tokenPart;
+  try {
+    var cache = CacheService.getDocumentCache();
+    var cached = cache.get(cacheKey);
+    if (cached) {
+      var json = JSON.parse(cached);
+      if (json && json.status === true) return json;
+    }
+  } catch (cacheErr) {
+    // 快取讀取失敗（如逾時、容量）則直接打 API
+  }
   try {
     var response = UrlFetchApp.fetch(BASE_DATA_API_URL, {
       method: "get",
@@ -203,7 +217,14 @@ function getBaseDataCached(token) {
       muteHttpExceptions: true
     });
     var json = JSON.parse(response.getContentText());
-    if (json && json.status === true) return json;
+    if (json && json.status === true) {
+      try {
+        CacheService.getDocumentCache().put(cacheKey, JSON.stringify(json), BASE_DATA_CACHE_TTL_SEC);
+      } catch (putErr) {
+        // 快取寫入失敗不影響回傳
+      }
+      return json;
+    }
     return null;
   } catch (e) {
     console.error("[Core] getBaseDataCached Error: " + e);

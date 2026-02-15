@@ -133,6 +133,8 @@ function handleRequest(params, method) {
         return actionGetUserDisplayName(params);
       case "executeRefundByPhone":
         return actionExecuteRefundByPhone(params);
+      case "employeeMonthlyPerformanceReport":
+        return actionEmployeeMonthlyPerformanceReport(params);
       default:
         return jsonOut({ status: "error", message: "未知 action: " + action });
     }
@@ -432,6 +434,172 @@ function actionExecuteRefundByPhone(params) {
       status: "error",
       success: false,
       message: (err && err.message) ? err.message : String(err)
+    });
+  }
+}
+
+/**
+ * Core API：員工業績月報表
+ * 參數：mode（full | lastMonth | fetchData）、batchSize（可選）
+ * full：Core 讀寫試算表（舊流程，保留相容）
+ * lastMonth：只處理上一個月
+ * fetchData：僅拉取資料回傳，不寫入試算表（供日報表 產出本地寫入）
+ */
+function actionEmployeeMonthlyPerformanceReport(params) {
+  try {
+    var mode = (params.mode != null) ? String(params.mode).trim() : "lastMonth";
+    var batchSize = (params.batchSize != null) ? parseInt(params.batchSize, 10) : (typeof BATCH_MONTHS !== "undefined" ? BATCH_MONTHS : 3);
+    if (isNaN(batchSize) || batchSize < 1) batchSize = 3;
+    var config = (typeof getCoreConfig === "function") ? getCoreConfig() : {};
+    var ssId = (config.DAILY_ACCOUNT_REPORT_SS_ID && String(config.DAILY_ACCOUNT_REPORT_SS_ID).trim()) ? String(config.DAILY_ACCOUNT_REPORT_SS_ID).trim() : "";
+    if (!ssId && mode !== "fetchData") return jsonOut({ status: "error", message: "未設定 DAILY_ACCOUNT_REPORT_SS_ID", _debug: "config=" + JSON.stringify(config).slice(0, 200) });
+
+    if (mode === "fetchData") {
+      var startYm = (params.startYm != null) ? String(params.startYm).trim() : "";
+      var endYm = (params.endYm != null) ? String(params.endYm).trim() : startYm;
+      Logger.log("[員工業績月報] fetchData 開始 startYm=" + startYm + " endYm=" + endYm);
+      if (!startYm || !endYm) {
+        Logger.log("[員工業績月報] ✗ fetchData 缺少 startYm 或 endYm");
+        return jsonOut({ status: "error", message: "fetchData 需提供 startYm、endYm" });
+      }
+      try {
+        var data = (typeof buildEmployeeMonthlyPerformanceReport === "function")
+          ? buildEmployeeMonthlyPerformanceReport(startYm, endYm) : {};
+        Logger.log("[員工業績月報] buildEmployeeMonthlyPerformanceReport 完成，月份=" + (data ? Object.keys(data).join(",") : "無"));
+        var built = (typeof buildEmployeeMonthlyReportRows === "function")
+          ? buildEmployeeMonthlyReportRows(data) : { rows: [], months: [] };
+        var rowCount = (built.rows && built.rows.length) ? built.rows.length : 0;
+        Logger.log("[員工業績月報] buildEmployeeMonthlyReportRows 完成，rows=" + rowCount);
+        return jsonOut({ status: "ok", data: { rows: built.rows, months: built.months } });
+      } catch (fetchErr) {
+        var errMsg = (fetchErr && fetchErr.message) ? fetchErr.message : String(fetchErr);
+        Logger.log("[員工業績月報] ✗ fetchData 錯誤: " + errMsg);
+        if (fetchErr && fetchErr.stack) Logger.log("[員工業績月報] stack: " + fetchErr.stack.slice(0, 500));
+        return jsonOut({ status: "error", message: "拉取資料失敗: " + errMsg, _debug: (fetchErr && fetchErr.stack) ? fetchErr.stack.slice(0, 300) : "" });
+      }
+    }
+
+    if (mode === "lastMonth") {
+      Logger.log("[員工業績月報] mode=lastMonth start");
+      var now = new Date();
+      var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      var ym = Utilities.formatDate(lastMonth, "Asia/Taipei", "yyyy-MM");
+      Logger.log("[員工業績月報] fetching " + ym);
+      var data = (typeof buildEmployeeMonthlyPerformanceReport === "function")
+        ? buildEmployeeMonthlyPerformanceReport(ym, ym) : {};
+      Logger.log("[員工業績月報] data keys=" + Object.keys(data).join(",") + " empCount=" + (data[ym] ? Object.keys(data[ym]).length : 0));
+      var writeResult = (typeof writeEmployeeMonthlyReportToSheet === "function")
+        ? writeEmployeeMonthlyReportToSheet(ssId, data, { replaceMonths: [ym] }) : { ok: false };
+      Logger.log("[員工業績月報] writeResult=" + JSON.stringify(writeResult));
+      return jsonOut({
+        status: writeResult.ok ? "ok" : "error",
+        message: writeResult.ok ? "上月業績已更新" : (writeResult.message || "寫入失敗"),
+        month: ym,
+        rowCount: writeResult.rowCount || 0,
+        _debug: writeResult.ok ? "" : ("writeResult=" + JSON.stringify(writeResult))
+      });
+    }
+
+    if (mode === "estimate") {
+      var endYm = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM");
+      var allMonths = (typeof listMonthsFrom2025_ === "function") ? listMonthsFrom2025_(endYm) : [];
+      var existingData = {};
+      try {
+        var sheet = SpreadsheetApp.openById(ssId).getSheetById(833948053) || SpreadsheetApp.openById(ssId).getSheetByName("員工業績月報");
+        if (sheet && sheet.getLastRow() >= 2) {
+          var lr = sheet.getLastRow();
+          var vals = sheet.getRange(2, 1, lr - 1, 4).getValues();
+          for (var i = 0; i < vals.length; i++) {
+            var m = vals[i][0] ? String(vals[i][0]).trim() : "";
+            if (allMonths.indexOf(m) >= 0) existingData[m] = true;
+          }
+        }
+      } catch (e) {}
+      var toProcess = [];
+      for (var j = 0; j < allMonths.length; j++) {
+        if (!existingData[allMonths[j]]) toProcess.push(allMonths[j]);
+      }
+      return jsonOut({ status: "ok", totalMonths: allMonths.length, toProcess: toProcess, toProcessCount: toProcess.length });
+    }
+
+    if (mode === "full") {
+      Logger.log("[員工業績月報] mode=full start");
+      var endYm = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM");
+      var allMonths = (typeof listMonthsFrom2025_ === "function") ? listMonthsFrom2025_(endYm) : [];
+      Logger.log("[員工業績月報] allMonths=" + allMonths.length + " " + (allMonths.slice(0, 3).join(",")) + "...");
+      var existingData = {};
+      // 客戶端傳入的已處理月份（避免試算表讀取延遲導致重複）
+      var processedMonthsParam = (params.processedMonths != null) ? String(params.processedMonths).trim() : "";
+      if (processedMonthsParam) {
+        var arr = processedMonthsParam.split(",");
+        for (var p = 0; p < arr.length; p++) {
+          var ym = arr[p] ? String(arr[p]).trim() : "";
+          if (ym && allMonths.indexOf(ym) >= 0) existingData[ym] = true;
+        }
+        Logger.log("[員工業績月報] processedMonths=" + processedMonthsParam + " -> existingData=" + Object.keys(existingData).join(","));
+      }
+      var lastMonthInSheet = null;
+      try {
+        var sheet = SpreadsheetApp.openById(ssId).getSheetById(833948053) || SpreadsheetApp.openById(ssId).getSheetByName("員工業績月報");
+        if (sheet && sheet.getLastRow() >= 2) {
+          var lr = sheet.getLastRow();
+          var numDataRows = lr - 1;
+          var vals = sheet.getRange(2, 1, numDataRows, 4).getValues();
+          for (var i = 0; i < vals.length; i++) {
+            var m = vals[i][0] ? String(vals[i][0]).trim() : "";
+            if (allMonths.indexOf(m) >= 0) existingData[m] = true;
+          }
+          var lastRowVal = sheet.getRange(lr, 1, 1, 1).getValues();
+          if (lastRowVal && lastRowVal[0] && lastRowVal[0][0]) {
+            lastMonthInSheet = String(lastRowVal[0][0]).trim();
+            if (!lastMonthInSheet || allMonths.indexOf(lastMonthInSheet) < 0) lastMonthInSheet = null;
+          }
+        }
+      } catch (e) {
+        Logger.log("[員工業績月報] readExisting err=" + (e && e.message ? e.message : e));
+      }
+      var toProcess = [];
+      for (var j = 0; j < allMonths.length; j++) {
+        if (!existingData[allMonths[j]]) toProcess.push(allMonths[j]);
+      }
+      if (lastMonthInSheet) {
+        toProcess.unshift(lastMonthInSheet);
+        Logger.log("[員工業績月報] 中斷續跑：先重算最後月份 " + lastMonthInSheet + " 再續跑");
+      }
+      Logger.log("[員工業績月報] toProcess=" + toProcess.length + " " + (toProcess.slice(0, 5).join(",")));
+      if (toProcess.length === 0) {
+        return jsonOut({ status: "ok", message: "所有月份已產出，無需處理", processed: [], remaining: [] });
+      }
+      var batch = toProcess.slice(0, batchSize);
+      var startYm = batch[0];
+      var endBatch = batch[batch.length - 1];
+      Logger.log("[員工業績月報] buildReport " + startYm + "~" + endBatch);
+      var data = (typeof buildEmployeeMonthlyPerformanceReport === "function")
+        ? buildEmployeeMonthlyPerformanceReport(startYm, endBatch) : {};
+      Logger.log("[員工業績月報] buildReport done, months=" + Object.keys(data).join(","));
+      var writeResult = (typeof writeEmployeeMonthlyReportToSheet === "function")
+        ? writeEmployeeMonthlyReportToSheet(ssId, data, { replaceMonths: batch }) : { ok: false };
+      var remaining = toProcess.slice(batchSize);
+      Logger.log("[員工業績月報] writeResult=" + JSON.stringify(writeResult));
+      return jsonOut({
+        status: writeResult.ok ? "ok" : "error",
+        message: writeResult.ok ? ("已處理 " + batch.length + " 個月" + (remaining.length > 0 ? "，請再執行一次以繼續" : "")) : (writeResult.message || "寫入失敗"),
+        processed: batch,
+        remaining: remaining,
+        rowCount: writeResult.rowCount || 0,
+        _debug: writeResult.ok ? "" : ("writeResult=" + JSON.stringify(writeResult))
+      });
+    }
+
+    return jsonOut({ status: "error", message: "mode 需為 full 或 lastMonth" });
+  } catch (err) {
+    var errMsg = (err && err.message) ? err.message : String(err);
+    var errStack = (err && err.stack) ? err.stack : "";
+    Logger.log("[員工業績月報] EXCEPTION: " + errMsg + "\n" + errStack);
+    return jsonOut({
+      status: "error",
+      message: "執行錯誤: " + errMsg,
+      _debug: "stack=" + errStack.slice(0, 500)
     });
   }
 }
